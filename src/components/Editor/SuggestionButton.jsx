@@ -80,7 +80,8 @@ export default function SuggestionButton({ textareaRef, imageData, lines, paraIn
         reOcrRegion(imageData, found.bbox).then((text) => {
           setReOcrText(text);
           setReOcrLoading(false);
-        }).catch(() => {
+        }).catch((err) => {
+          setReOcrText('Error: ' + (err?.message || err || 'OCR API failed'));
           setReOcrLoading(false);
         });
       }
@@ -118,10 +119,14 @@ export default function SuggestionButton({ textareaRef, imageData, lines, paraIn
           {showPreview && (
             <div className="px-3 py-2 border-b border-gray-100">
               <div className="text-[10px] text-gray-400 mb-1">
-                {reOcrLoading ? 'Re-scanning image region...' : reOcrText ? 'Fresh scan result:' : 'Image reference'}
+                {reOcrLoading ? 'Re-scanning image region...' : reOcrText ? (reOcrText.startsWith('Error:') ? 'Scan error:' : 'Fresh scan result:') : 'Image reference'}
               </div>
               {!reOcrLoading && reOcrText && (
-                <div className="text-sm font-medium text-gray-800 bg-indigo-50 rounded p-2 mb-2 border border-indigo-100 leading-relaxed break-words">
+                <div className={`text-sm font-medium rounded p-2 mb-2 border leading-relaxed break-words ${
+                  reOcrText.startsWith('Error:')
+                    ? 'text-red-700 bg-red-50 border-red-200'
+                    : 'text-gray-800 bg-indigo-50 border-indigo-100'
+                }`}>
                   {reOcrText}
                 </div>
               )}

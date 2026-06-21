@@ -231,28 +231,37 @@ export async function reOcrRegion(imageData, bbox, padding) {
   ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
 
   // Re-OCR via OCR.space API instead of a second Tesseract worker
-  const base64 = canvas.toDataURL('image/png').replace('data:image/png;base64,', '');
+  const base64 = canvas.toDataURL('image/png');
   const apiKey = CONFIG.OCR_SPACE_API_KEY;
 
   if (!apiKey) return '';
 
   try {
-    const formData = new FormData();
-    formData.append('apikey', apiKey);
-    formData.append('language', 'hin');
-    formData.append('base64image', base64);
-    formData.append('isOverlayRequired', 'false');
-    formData.append('scale', 'true');
-    formData.append('OCREngine', '2');
+    // OCREngine 3 supports 200+ languages with auto-detection (including Hindi).
+    // Engine 2 only covers Latin/Western + Chinese.
+    const params = new URLSearchParams({
+      apikey: apiKey,
+      OCREngine: '3',
+      base64image: base64,
+      isOverlayRequired: 'false',
+      scale: 'true',
+    });
 
-    const res = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: formData });
+    const res = await fetch('https://api.ocr.space/parse/image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
     const data = await res.json();
 
     if (data.OCRExitCode === 1 && data.ParsedResults && data.ParsedResults.length > 0) {
       return data.ParsedResults[0].ParsedText.trim();
     }
-    return '';
-  } catch {
-    return '';
+    const errMsg = Array.isArray(data.ErrorMessage)
+      ? data.ErrorMessage.join('; ')
+      : data.ErrorMessage || `OCR.space exit code ${data.OCRExitCode}`;
+    throw new Error(errMsg);
+  } catch (e) {
+    throw e;
   }
 }
