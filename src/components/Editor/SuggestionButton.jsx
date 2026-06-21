@@ -93,7 +93,7 @@ export function ReScanButton({ textareaRef, imageData, lines, onFocusImage }) {
             {loading ? (
               <div className="text-xs text-gray-400 animate-pulse">Scanning with OCR.space...</div>
             ) : (
-              <div className={`text-sm leading-relaxed break-words whitespace-pre-wrap rounded p-2 border max-h-[60vh] overflow-y-auto ${
+              <div className={`text-sm leading-relaxed break-words whitespace-pre-wrap rounded p-2 border ${
                 result.startsWith('Error:')
                   ? 'text-red-700 bg-red-50 border-red-200'
                   : 'text-gray-800 bg-indigo-50 border-indigo-100'
