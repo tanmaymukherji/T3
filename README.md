@@ -14,8 +14,25 @@ A desktop application built with Electron + React + Python FastAPI to scan image
 - **Backend**: Python FastAPI, Tesseract OCR, Pillow, OpenCV
 - **APIs**: Bhashini, Hugging Face Inference
 
+## Live Site
+https://tanmaymukherji.github.io/Translation_Tool/
+
 ## Setup
 1. Ensure you have `tesseract` installed on your system.
 2. Create a `.env` file in the root with your API keys.
 3. Run `npm install` and `pip install -r requirements.txt`.
 4. Run `npm run dev` to start the application.
+
+## Running Locally
+**Terminal 1 (Backend):**
+```
+cd backend
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Terminal 2 (Frontend):**
+```
+npm run dev
+```
+
+Then open http://localhost:5173 in your browser.
