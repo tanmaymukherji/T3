@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import api from './api';
+import React, { useState, useEffect, useCallback } from 'react';
 import DocumentLibrary from './components/Library/DocumentLibrary';
 import SplitPaneEditor from './components/Editor/SplitPaneEditor';
 import FolderImporter from './components/Importer/FolderImporter';
+import SettingsPanel from './components/SettingsPanel';
 import ErrorBanner from './components/ErrorBanner';
+import { listProjects, saveProject } from './storage';
 
 export default function App() {
   const [projects, setProjects] = useState([]);
@@ -11,100 +12,71 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [view, setView] = useState('library');
-  const [backendStatus, setBackendStatus] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [progress, setProgress] = useState(null);
 
   useEffect(() => {
-    checkBackend();
     loadProjects();
   }, []);
 
-  const checkBackend = async () => {
-    try {
-      const res = await api.get('/api/status');
-      setBackendStatus(res.data);
-    } catch (err) {
-      setBackendStatus({ error: 'Backend offline' });
-    }
-  };
-
   const loadProjects = async () => {
     try {
-      const res = await api.get('/api/projects');
-      setProjects(res.data);
+      const all = await listProjects();
+      setProjects(all);
     } catch (err) {
       console.error('Failed to load projects:', err);
     }
   };
 
-  /**
-   * Called after OCR is complete (either via Import Folder or Upload Images).
-   * Accepts either:
-   *   - A string (folder_path) -> then calls /api/import
-   *   - An object (project) -> uses directly
-   */
-  const handleImportComplete = async (result) => {
+  const handleProjectResult = useCallback(async (result) => {
     setLoading(true);
     setError(null);
+    setProgress(null);
     try {
       let project;
 
-      if (typeof result === 'string') {
-        // Folder path was provided - call import endpoint
-        const res = await api.post('/api/import', { folder_path: result });
-        project = res.data;
-      } else if (result && result.id) {
-        // Project object was returned directly (from upload endpoint)
+      if (typeof result === 'object' && result.paragraphs) {
+        // OCR result from FolderImporter
+        const htmlContent = result.paragraphs
+          .map((p) => `<p>${p}</p>`)
+          .join('\n');
+
+        project = await saveProject({
+          name: result.name || 'Untitled',
+          folder_path: result.folder || '',
+          content: htmlContent,
+          paragraphs: result.paragraphs.length,
+        });
+      } else if (typeof result === 'object' && result.id) {
         project = result;
       } else {
-        throw new Error('Invalid import result');
+        throw new Error('Invalid project data');
       }
 
-      setProjects((prev) => {
-        const exists = prev.find((p) => p.id === project.id);
-        return exists ? prev.map((p) => (p.id === project.id ? project : p)) : [...prev, project];
-      });
+      await loadProjects();
       setActiveProject(project);
       setView('editor');
     } catch (err) {
-      setError(err.friendlyMessage || err.response?.data?.detail || 'Import failed: ' + err.message);
+      setError(err.message || 'Failed to create project');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleSelectProject = (project) => {
     setActiveProject(project);
     setView('editor');
   };
 
-  const handleSave = async () => {
+  const handleSaveContent = async (content) => {
     if (!activeProject) return;
     setLoading(true);
     try {
-      const res = await api.post('/api/save', {
-        docx_path: activeProject.docx_path,
-        content: activeProject.content,
-      });
-      setActiveProject({ ...activeProject, ...res.data });
+      const updated = await saveProject({ ...activeProject, content });
+      setActiveProject(updated);
+      await loadProjects();
     } catch (err) {
-      setError(err.friendlyMessage || err.response?.data?.detail || 'Save failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSaveTranslation = async (translatedContent, lang) => {
-    if (!activeProject) return;
-    setLoading(true);
-    try {
-      const res = await api.post('/api/save-translation', {
-        docx_path: activeProject.docx_path,
-        content: translatedContent,
-        target_lang: lang,
-      });
-      setActiveProject({ ...activeProject, ...res.data });
-    } catch (err) {
-      setError(err.friendlyMessage || err.response?.data?.detail || 'Save translation failed');
+      setError('Save failed: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -115,53 +87,71 @@ export default function App() {
       <header className="bg-slate-800 text-white px-6 py-3 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold">Translation Tool</h1>
-          <button
-            onClick={() => setView('library')}
-            className={`px-3 py-1 rounded text-sm ${view === 'library' ? 'bg-slate-600' : 'hover:bg-slate-700'}`}
-          >
-            Library
-          </button>
+          <nav className="flex gap-2">
+            <button
+              onClick={() => setView('library')}
+              className={`px-3 py-1 rounded text-sm ${view === 'library' ? 'bg-slate-600' : 'hover:bg-slate-700'}`}
+            >
+              Library
+            </button>
+          </nav>
         </div>
         <div className="flex items-center gap-3">
-          {backendStatus && !backendStatus.error && backendStatus.tesseract === false && (
-            <span className="text-amber-300 text-xs px-2 py-1 bg-amber-800 rounded">
-              Installing Tesseract... (first run only)
+          {activeProject && view === 'editor' && (
+            <span className="text-gray-300 text-sm truncate max-w-[200px]">
+              {activeProject.name}
             </span>
           )}
-          {backendStatus && backendStatus.error && (
-            <span className="text-red-300 text-xs px-2 py-1 bg-red-800 rounded">
-              Backend offline
-            </span>
-          )}
-          {activeProject && (
-            <button onClick={handleSave} disabled={loading}
-              className="bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded text-sm disabled:opacity-50">
-              {loading ? 'Saving...' : 'Save'}
-            </button>
-          )}
-          <FolderImporter onImport={handleImportComplete} disabled={loading} />
+          <button
+            onClick={() => setShowSettings(true)}
+            className="text-gray-400 hover:text-white text-sm"
+            title="Settings"
+          >
+            ⚙
+          </button>
+          <FolderImporter onImport={handleProjectResult} disabled={loading} />
         </div>
       </header>
+
+      {/* Progress bar */}
+      {progress && (
+        <div className="bg-blue-100 text-blue-800 px-4 py-1 text-xs flex items-center gap-2">
+          <div className="flex-1 bg-blue-200 rounded-full h-2">
+            <div
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
+            />
+          </div>
+          <span>
+            {progress.phase === 'ocr'
+              ? `OCR: ${progress.current}/${progress.total} (${progress.file})`
+              : progress.phase === 'translate'
+              ? `Translating...`
+              : ''}
+          </span>
+        </div>
+      )}
 
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
       <main className="flex-1 overflow-hidden">
         {view === 'library' && (
-          <DocumentLibrary projects={projects} onSelect={handleSelectProject} onRefresh={loadProjects} />
+          <DocumentLibrary
+            projects={projects}
+            onSelect={handleSelectProject}
+            onRefresh={loadProjects}
+          />
         )}
-        {view === 'editor' && activeProject ? (
+        {view === 'editor' && activeProject && (
           <SplitPaneEditor
             project={activeProject}
-            onSave={handleSave}
-            onSaveTranslation={handleSaveTranslation}
+            onSave={handleSaveContent}
             loading={loading}
           />
-        ) : view === 'editor' && !activeProject ? (
-          <div className="h-full flex items-center justify-center text-gray-500">
-            <p>Select a document from the Library to start editing.</p>
-          </div>
-        ) : null}
+        )}
       </main>
+
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

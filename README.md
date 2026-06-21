@@ -1,38 +1,50 @@
 # Translation Tool
 
-A desktop application built with Electron + React + Python FastAPI to scan images and translate them across Indian languages.
+A fully browser-based standalone web app hosted on GitHub Pages:
+1. Select a folder of scanned images (Hindi/English/Sanskrit)
+2. Extract text via OCR (runs entirely in browser via Tesseract.js WebAssembly)
+3. Edit and translate paragraph-by-paragraph into 10 Indian languages
+4. Export translated DOCX files
 
-## Features
-- **OCR**: Extracts text from Hindi, English, and Sanskrit scanned images.
-- **Editor**: Split-pane editor to review extracted text and create translations.
-- **Translation**: Uses Bhashini (Primary) or Hugging Face (Fallback) APIs for high-quality translation to Indian languages, starting with Bengali.
-- **Selective Translation**: Translate specific paragraphs while retaining others in the original language.
-- **Export**: Saves translated documents as DOCX files.
-
-## Tech Stack
-- **Frontend**: Electron, React, Vite, TipTap, Tailwind CSS
-- **Backend**: Python FastAPI, Tesseract OCR, Pillow, OpenCV
-- **APIs**: Bhashini, Hugging Face Inference
+**No backend required. No local server. No installation.**
+Just open the URL and use it.
 
 ## Live Site
 https://tanmaymukherji.github.io/Translation_Tool/
 
-## Setup
-1. Ensure you have `tesseract` installed on your system.
-2. Create a `.env` file in the root with your API keys.
-3. Run `npm install` and `pip install -r requirements.txt`.
-4. Run `npm run dev` to start the application.
+## Features
+- **OCR**: Browser-based OCR using Tesseract.js (Hindi, English, Sanskrit)
+- **Editor**: Split-pane editor to review extracted text and create translations
+- **Translation**: Uses Hugging Face IndicTrans2 (primary) or Bhashini (secondary) APIs
+- **Selective Translation**: Translate specific paragraphs, keep others original
+- **Export**: Download translated documents as DOCX files
 
-## Running Locally
-**Terminal 1 (Backend):**
-```
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
+## Tech Stack
+- React, Vite, Tailwind CSS
+- Tesseract.js (browser OCR via WebAssembly)
+- docx (client-side DOCX generation)
+- idb (IndexedDB wrapper for document storage)
+- Hugging Face Inference API / Bhashini API
 
-**Terminal 2 (Frontend):**
-```
+## Setup (for development)
+```bash
+npm install
 npm run dev
 ```
 
-Then open http://localhost:5173 in your browser.
+## Deploy to GitHub Pages
+```bash
+npm run deploy
+```
+
+## Usage
+1. Open the app (local or GitHub Pages)
+2. Click **+ Select Folder / Images** in the top-right
+3. Choose a folder with scanned images (Chromium browsers) or select image files
+4. Wait for OCR processing (runs entirely in your browser)
+5. Review extracted paragraphs in the left pane
+6. Click **Translate** on any paragraph to get a translation
+7. Click **Keep Original** to retain the source text in the translation pane
+8. Select target language and translation provider from the dropdown
+9. Click **Export DOCX** to download the translated document
+10. Click **Save** to persist to IndexedDB (local browser storage)

@@ -1,27 +1,23 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import api from '../../api';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { translate } from '../../translation';
+import { generateDocx } from '../../docx';
+import CONFIG from '../../config';
 
-const LANGUAGES = [
-  { code: 'bn', name: 'Bengali' },
-  { code: 'hi', name: 'Hindi' },
-  { code: 'ta', name: 'Tamil' },
-  { code: 'te', name: 'Telugu' },
-  { code: 'mr', name: 'Marathi' },
-  { code: 'gu', name: 'Gujarati' },
-  { code: 'kn', name: 'Kannada' },
-  { code: 'ml', name: 'Malayalam' },
-  { code: 'pa', name: 'Punjabi' },
-  { code: 'ur', name: 'Urdu' },
-];
-
-export default function SplitPaneEditor({ project, onSave, onSaveTranslation, loading }) {
+export default function SplitPaneEditor({ project, onSave, loading }) {
   const [originalHtml, setOriginalHtml] = useState('');
-  const [translationHtml, setTranslationHtml] = useState('');
-  const [selectedText, setSelectedText] = useState('');
+  const [translations, setTranslations] = useState({});
   const [selectedParagraphIndex, setSelectedParagraphIndex] = useState(null);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [provider, setProvider] = useState(() => localStorage.getItem('translation_provider') || 'huggingface');
-  const [targetLang, setTargetLang] = useState(() => localStorage.getItem('target_lang') || 'bn');
+  const [translatingIndex, setTranslatingIndex] = useState(null);
+  const [targetLang, setTargetLang] = useState(
+    () => localStorage.getItem('target_lang') || 'bn'
+  );
+  const [provider, setProvider] = useState(
+    () => localStorage.getItem('translation_provider') || 'huggingface'
+  );
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem('hf_api_key') || CONFIG.HUGGINGFACE_API_KEY
+  );
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (project?.content) {
@@ -29,14 +25,6 @@ export default function SplitPaneEditor({ project, onSave, onSaveTranslation, lo
     }
   }, [project]);
 
-  useEffect(() => {
-    const savedProvider = localStorage.getItem('translation_provider');
-    const savedLang = localStorage.getItem('target_lang');
-    if (savedProvider) setProvider(savedProvider);
-    if (savedLang) setTargetLang(savedLang);
-  }, []);
-
-  // Extract paragraphs from original HTML
   const paragraphs = useMemo(() => {
     const div = document.createElement('div');
     div.innerHTML = originalHtml;
@@ -48,7 +36,6 @@ export default function SplitPaneEditor({ project, onSave, onSaveTranslation, lo
         result.push({ index: i, text, html: p.outerHTML });
       }
     });
-    // Fallback: if no <p> tags, split by double-newlines
     if (result.length === 0) {
       const lines = originalHtml.split(/\n\s*\n/);
       lines.forEach((line, i) => {
@@ -61,56 +48,56 @@ export default function SplitPaneEditor({ project, onSave, onSaveTranslation, lo
     return result;
   }, [originalHtml]);
 
-  const handleTextSelect = (text) => {
-    setSelectedText(text);
-  };
+  const handleTranslate = useCallback(async (paragraph, index) => {
+    setTranslatingIndex(index);
+    setError(null);
 
-  const handleTranslateParagraph = async (paragraph, index) => {
-    setIsTranslating(true);
-    setSelectedParagraphIndex(index);
     try {
-      let res;
-      if (provider === 'huggingface') {
-        res = await api.post('/api/translate/hf', {
-          text: paragraph.text,
-          src_lang: 'auto',
-          tgt_lang: targetLang,
-        });
-      } else {
-        res = await api.post('/api/translate/bhashini', {
-          text: paragraph.text,
-          src_lang: 'auto',
-          tgt_lang: targetLang,
-        });
-      }
-      return res.data.translation;
+      const result = await translate(provider, paragraph.text, 'auto', targetLang, apiKey);
+      setTranslations((prev) => ({
+        ...prev,
+        [index]: result.translation,
+      }));
     } catch (err) {
       console.error('Translation failed:', err);
-      return 'Translation failed. Please try again.';
+      setError(err.message || 'Translation failed');
+      // Keep original as fallback
+      setTranslations((prev) => ({
+        ...prev,
+        [index]: paragraph.text,
+      }));
     } finally {
-      setIsTranslating(false);
+      setTranslatingIndex(null);
+    }
+  }, [provider, targetLang, apiKey]);
+
+  const handleKeepOriginal = (paragraph, index) => {
+    setTranslations((prev) => ({
+      ...prev,
+      [index]: paragraph.text,
+    }));
+  };
+
+  const handleExportDocx = async () => {
+    const allParagraphs = paragraphs.map((p, i) => {
+      return translations[i] || p.text;
+    });
+    try {
+      const filename = `${project.name || 'translation'}_${targetLang}.docx`;
+      await generateDocx(allParagraphs, filename);
+    } catch (err) {
+      setError('Export failed: ' + err.message);
     }
   };
 
-  const handleAddToTranslation = (translatedText, paragraphIndex) => {
-    // Build translation HTML by replacing the original paragraph in a copy
-    const div = document.createElement('div');
-    div.innerHTML = originalHtml;
-    const paras = div.querySelectorAll('p');
-    if (paras[paragraphIndex]) {
-      // Detect if Sanskrit -> keep original
-      const originalText = paragraphs[paragraphIndex].text;
-      const isSanskrit = /[\u0900-\u097F]{3,}/.test(originalText) && paragraphIndex !== -1;
-      if (isSanskrit) {
-        // Keep original in translation pane too
-      }
-      paras[paragraphIndex].innerHTML = translatedText;
-    }
-    setTranslationHtml(div.innerHTML);
+  const handleProviderChange = (newProvider) => {
+    setProvider(newProvider);
+    localStorage.setItem('translation_provider', newProvider);
   };
 
-  const handleSaveTranslation = () => {
-    onSaveTranslation(translationHtml, targetLang);
+  const handleLangChange = (newLang) => {
+    setTargetLang(newLang);
+    localStorage.setItem('target_lang', newLang);
   };
 
   return (
@@ -119,38 +106,25 @@ export default function SplitPaneEditor({ project, onSave, onSaveTranslation, lo
       <div className="w-1/2 border-r border-gray-300 flex flex-col">
         <div className="bg-gray-100 px-4 py-2 border-b border-gray-300 text-sm font-medium text-gray-700">
           Original Document
-          {selectedText && (
-            <span className="ml-2 text-xs text-indigo-600">({selectedText.length} chars selected)</span>
-          )}
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           {paragraphs.map((p, i) => (
             <div key={i} className="mb-3 group relative">
               <div
                 className="p-3 bg-white rounded border border-gray-200 hover:border-indigo-300 cursor-pointer"
-                onClick={() => {
-                  setSelectedText(p.text);
-                  setSelectedParagraphIndex(i);
-                }}
-                onMouseUp={(e) => {
-                  const sel = window.getSelection();
-                  if (sel && sel.toString().trim()) {
-                    handleTextSelect(sel.toString().trim());
-                    setSelectedParagraphIndex(i);
-                  }
-                }}
+                onClick={() => setSelectedParagraphIndex(i)}
                 dangerouslySetInnerHTML={{ __html: p.html }}
               />
               <div className="mt-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
-                  onClick={() => handleTranslateParagraph(p, i).then((t) => handleAddToTranslation(t, i))}
-                  disabled={isTranslating}
-                  className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded hover:bg-indigo-200"
+                  onClick={() => handleTranslate(p, i)}
+                  disabled={translatingIndex === i}
+                  className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded hover:bg-indigo-200 disabled:opacity-50"
                 >
-                  {isTranslating && selectedParagraphIndex === i ? 'Translating...' : 'Translate'}
+                  {translatingIndex === i ? 'Translating...' : 'Translate'}
                 </button>
                 <button
-                  onClick={() => handleAddToTranslation(p.text, i)}
+                  onClick={() => handleKeepOriginal(p, i)}
                   className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded hover:bg-gray-200"
                 >
                   Keep Original
@@ -169,50 +143,65 @@ export default function SplitPaneEditor({ project, onSave, onSaveTranslation, lo
             <div className="flex items-center gap-2">
               <select
                 value={targetLang}
-                onChange={(e) => {
-                  setTargetLang(e.target.value);
-                  localStorage.setItem('target_lang', e.target.value);
-                }}
+                onChange={(e) => handleLangChange(e.target.value)}
                 className="text-xs border rounded px-2 py-1"
               >
-                {LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>{l.name}</option>
+                {CONFIG.LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.name} ({l.native})
+                  </option>
                 ))}
               </select>
               <select
                 value={provider}
-                onChange={(e) => {
-                  setProvider(e.target.value);
-                  localStorage.setItem('translation_provider', e.target.value);
-                }}
+                onChange={(e) => handleProviderChange(e.target.value)}
                 className="text-xs border rounded px-2 py-1"
               >
-                <option value="huggingface">Hugging Face</option>
+                <option value="huggingface">Hugging Face (IndicTrans2)</option>
                 <option value="bhashini">Bhashini</option>
               </select>
               <button
-                onClick={handleSaveTranslation}
-                disabled={loading}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1 rounded disabled:opacity-50"
+                onClick={handleExportDocx}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1 rounded"
               >
-                {loading ? 'Saving...' : 'Save Translation'}
+                Export DOCX
+              </button>
+              <button
+                onClick={() => onSave(originalHtml)}
+                disabled={loading}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1 rounded disabled:opacity-50"
+              >
+                {loading ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
         </div>
+
+        {error && (
+          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 px-4 py-2 text-sm">
+            {error}
+            <button onClick={() => setError(null)} className="float-right font-bold">&times;</button>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-4">
-          {translationHtml ? (
-            <div
-              className="p-3 bg-white rounded border border-gray-200 min-h-full"
-              contentEditable
-              suppressContentEditableWarning
-              onBlur={(e) => setTranslationHtml(e.currentTarget.innerHTML)}
-              dangerouslySetInnerHTML={{ __html: translationHtml }}
-            />
+          {Object.keys(translations).length > 0 ? (
+            paragraphs.map((p, i) => (
+              translations[i] ? (
+                <div key={i} className="mb-3">
+                  <div className="p-3 bg-white rounded border border-green-200">
+                    <p className="text-sm text-gray-500 mb-1">Paragraph {i + 1}</p>
+                    {translations[i]}
+                  </div>
+                </div>
+              ) : null
+            ))
           ) : (
             <div className="text-center text-gray-400 mt-20">
               <p className="text-lg">No translations yet.</p>
-              <p className="text-sm mt-2">Click "Translate" on any paragraph in the left pane to get started.</p>
+              <p className="text-sm mt-2">
+                Click "Translate" on any paragraph in the left pane to get started.
+              </p>
             </div>
           )}
         </div>
