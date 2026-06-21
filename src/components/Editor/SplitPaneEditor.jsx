@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { translate } from '../../translation';
 import { generateDocx } from '../../docx';
 import CONFIG from '../../config';
@@ -19,12 +19,28 @@ function parseParagraphs(project) {
           id: `p_${index}`,
           index,
           page: parseInt(p.getAttribute('data-page'), 10) || 1,
+          filename: p.getAttribute('data-filename') || '',
           text,
         });
         index++;
       }
     });
-  } else {
+  }
+
+  if (result.length === 0 && project?.paragraphs && project.paragraphs.length > 0) {
+    for (const p of project.paragraphs) {
+      result.push({
+        id: p.id || `p_${index}`,
+        index,
+        page: p.page || 1,
+        filename: p.filename || '',
+        text: p.text,
+      });
+      index++;
+    }
+  }
+
+  if (result.length === 0) {
     const lines = html.split(/\n\s*\n/);
     lines.forEach((line) => {
       const text = line.replace(/<[^>]*>/g, '').trim();
@@ -35,19 +51,101 @@ function parseParagraphs(project) {
     });
   }
 
-  if (result.length === 0 && project?.paragraphs) {
-    for (const p of project.paragraphs) {
-      result.push({
-        id: p.id || `p_${index}`,
-        index,
-        page: p.page || 1,
-        text: p.text,
-      });
-      index++;
-    }
-  }
-
   return result;
+}
+
+function PageGroup({ pageNum, paragraphs, originals, translations, translatingIndex, onTextChange, onTranslate, onKeepOriginal }) {
+  const filename = paragraphs[0]?.filename || '';
+  return (
+    <div className="mb-6">
+      <div className="sticky top-0 z-10 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 mb-3 flex items-center gap-3 shadow-sm">
+        <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">
+          PAGE {pageNum}
+        </span>
+        <span className="text-xs text-blue-700 font-medium">
+          {paragraphs.length} paragraph{paragraphs.length !== 1 ? 's' : ''}
+        </span>
+        {filename && (
+          <span className="text-xs text-blue-500 ml-auto truncate max-w-[200px]" title={filename}>
+            {filename}
+          </span>
+        )}
+      </div>
+      {paragraphs.map((p) => {
+        const text = originals[p.index] !== undefined ? originals[p.index] : p.text;
+        const rows = Math.max(2, text.split('\n').length, Math.ceil(text.length / 55));
+        return (
+          <div key={p.id || p.index} className="mb-2 ml-2">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-[11px] text-gray-400 font-mono">¶{p.index + 1}</span>
+              <span className="text-[11px] text-gray-400">p.{pageNum}</span>
+            </div>
+            <textarea
+              value={text}
+              onChange={(e) => onTextChange(p.index, e.target.value)}
+              className="w-full p-3 bg-white rounded border border-gray-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 text-sm resize-y min-h-[3.5rem] font-sans leading-relaxed whitespace-pre-wrap"
+              rows={rows}
+            />
+            <div className="mt-1 flex gap-1">
+              <button
+                onClick={() => onTranslate(p)}
+                disabled={translatingIndex === p.index}
+                className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded hover:bg-indigo-200 disabled:opacity-50"
+              >
+                {translatingIndex === p.index ? 'Translating...' : 'Translate'}
+              </button>
+              <button
+                onClick={() => onKeepOriginal(p)}
+                className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded hover:bg-gray-200"
+              >
+                Keep Original
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TranslationPageGroup({ pageNum, paragraphs, translations, onTextChange }) {
+  const hasAny = paragraphs.some((p) => translations[p.index] !== undefined);
+  if (!hasAny) return null;
+
+  const filename = paragraphs[0]?.filename || '';
+
+  return (
+    <div className="mb-6">
+      <div className="sticky top-0 z-10 bg-green-50 border border-green-200 rounded-lg px-4 py-2 mb-3 flex items-center gap-3 shadow-sm">
+        <span className="bg-green-600 text-white text-xs font-bold px-2 py-0.5 rounded">
+          PAGE {pageNum}
+        </span>
+        {filename && (
+          <span className="text-xs text-green-500 ml-auto truncate max-w-[200px]" title={filename}>
+            {filename}
+          </span>
+        )}
+      </div>
+      {paragraphs.map((p) => {
+        const t = translations[p.index];
+        if (t === undefined) return null;
+        const rows = Math.max(2, t.split('\n').length, Math.ceil(t.length / 55));
+        return (
+          <div key={p.id || p.index} className="mb-2 ml-2">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-[11px] text-gray-400 font-mono">¶{p.index + 1}</span>
+            </div>
+            <textarea
+              value={t}
+              onChange={(e) => onTextChange(p.index, e.target.value)}
+              className="w-full p-3 bg-white rounded border border-green-200 focus:border-green-400 focus:ring-1 focus:ring-green-400 text-sm resize-y min-h-[3.5rem] font-sans leading-relaxed whitespace-pre-wrap"
+              rows={rows}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function SplitPaneEditor({ project, onSave, loading }) {
@@ -75,12 +173,23 @@ export default function SplitPaneEditor({ project, onSave, loading }) {
         origs[p.index] = p.text;
       }
       setOriginals(origs);
-
       if (project.translations) {
         setTranslations(project.translations);
       }
     }
   }, [project]);
+
+  const pages = useMemo(() => {
+    const map = {};
+    for (const p of paragraphs) {
+      const pg = p.page || 1;
+      if (!map[pg]) map[pg] = [];
+      map[pg].push(p);
+    }
+    return Object.entries(map)
+      .sort(([a], [b]) => parseInt(a) - parseInt(b))
+      .map(([page, paras]) => ({ page: parseInt(page), paragraphs: paras }));
+  }, [paragraphs]);
 
   const updateOriginal = useCallback((index, text) => {
     setOriginals((prev) => ({ ...prev, [index]: text }));
@@ -130,82 +239,43 @@ export default function SplitPaneEditor({ project, onSave, loading }) {
 
   const handleSave = () => {
     const html = paragraphs
-      .map((p) => `<p data-page="${p.page}">${originals[p.index] || p.text}</p>`)
+      .map((p) => `<p data-page="${p.page}" data-filename="${p.filename || ''}">${originals[p.index] || p.text}</p>`)
       .join('\n');
-    const saveData = {
-      translations,
-      total_paragraphs: paragraphs.length,
-    };
-    onSave(html, saveData);
+    onSave(html, { translations });
   };
-
-  const handleProviderChange = (newProvider) => {
-    setProvider(newProvider);
-    localStorage.setItem('translation_provider', newProvider);
-  };
-
-  const handleLangChange = (newLang) => {
-    setTargetLang(newLang);
-    localStorage.setItem('target_lang', newLang);
-  };
-
-  let lastPage = 0;
 
   return (
     <div className="h-full flex">
+      {/* LEFT PANE: Originals grouped by page */}
       <div className="w-1/2 border-r border-gray-300 flex flex-col">
         <div className="bg-gray-100 px-4 py-2 border-b border-gray-300 text-sm font-medium text-gray-700 flex items-center justify-between">
           <span>Original Document</span>
-          <span className="text-xs text-gray-500">{paragraphs.length} paragraphs</span>
+          <span className="text-xs text-gray-500">{pages.length} pages · {paragraphs.length} paragraphs</span>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          {paragraphs.map((p, i) => {
-            const showPageBreak = p.page !== lastPage && i > 0;
-            lastPage = p.page;
-            return (
-              <div key={p.id || i} className="mb-3">
-                {showPageBreak && (
-                  <div className="flex items-center gap-2 mb-2 text-xs text-gray-400">
-                    <span className="border-t border-gray-300 flex-1" />
-                    Page {p.page}
-                    <span className="border-t border-gray-300 flex-1" />
-                  </div>
-                )}
-                <div className="group relative">
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-xs text-gray-400 font-mono">¶{i + 1}</span>
-                    {p.page > 0 && (
-                      <span className="text-xs text-gray-400">p.{p.page}</span>
-                    )}
-                  </div>
-                  <textarea
-                    value={originals[p.index] !== undefined ? originals[p.index] : p.text}
-                    onChange={(e) => updateOriginal(p.index, e.target.value)}
-                    className="w-full p-3 bg-white rounded border border-gray-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 text-sm resize-y min-h-[3rem] font-sans leading-relaxed"
-                    rows={Math.max(2, ((originals[p.index] || p.text).length / 60) + 1)}
-                  />
-                  <div className="mt-1 flex gap-1">
-                    <button
-                      onClick={() => handleTranslate(p)}
-                      disabled={translatingIndex === p.index}
-                      className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded hover:bg-indigo-200 disabled:opacity-50"
-                    >
-                      {translatingIndex === p.index ? 'Translating...' : 'Translate'}
-                    </button>
-                    <button
-                      onClick={() => handleKeepOriginal(p)}
-                      className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded hover:bg-gray-200"
-                    >
-                      Keep Original
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {pages.map(({ page, paragraphs: pageParas }) => (
+            <PageGroup
+              key={page}
+              pageNum={page}
+              paragraphs={pageParas}
+              originals={originals}
+              translations={translations}
+              translatingIndex={translatingIndex}
+              onTextChange={updateOriginal}
+              onTranslate={handleTranslate}
+              onKeepOriginal={handleKeepOriginal}
+            />
+          ))}
+          {pages.length === 0 && (
+            <div className="text-center text-gray-400 mt-20">
+              <p className="text-lg">No paragraphs</p>
+              <p className="text-sm mt-2">Import images to get started.</p>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* RIGHT PANE: Translations grouped by page */}
       <div className="w-1/2 flex flex-col">
         <div className="bg-gray-100 px-4 py-2 border-b border-gray-300">
           <div className="flex items-center justify-between">
@@ -213,7 +283,10 @@ export default function SplitPaneEditor({ project, onSave, loading }) {
             <div className="flex items-center gap-2">
               <select
                 value={targetLang}
-                onChange={(e) => handleLangChange(e.target.value)}
+                onChange={(e) => {
+                  setTargetLang(e.target.value);
+                  localStorage.setItem('target_lang', e.target.value);
+                }}
                 className="text-xs border rounded px-2 py-1"
               >
                 {CONFIG.LANGUAGES.map((l) => (
@@ -224,7 +297,10 @@ export default function SplitPaneEditor({ project, onSave, loading }) {
               </select>
               <select
                 value={provider}
-                onChange={(e) => handleProviderChange(e.target.value)}
+                onChange={(e) => {
+                  setProvider(e.target.value);
+                  localStorage.setItem('translation_provider', e.target.value);
+                }}
                 className="text-xs border rounded px-2 py-1"
               >
                 <option value="huggingface">Hugging Face (IndicTrans2)</option>
@@ -256,25 +332,15 @@ export default function SplitPaneEditor({ project, onSave, loading }) {
 
         <div className="flex-1 overflow-y-auto p-4">
           {Object.keys(translations).length > 0 ? (
-            paragraphs.map((p, i) => {
-              const t = translations[p.index];
-              return t !== undefined ? (
-                <div key={p.id || i} className="mb-3">
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-xs text-gray-400 font-mono">¶{i + 1}</span>
-                    {p.page > 0 && (
-                      <span className="text-xs text-gray-400">p.{p.page}</span>
-                    )}
-                  </div>
-                  <textarea
-                    value={t}
-                    onChange={(e) => updateTranslation(p.index, e.target.value)}
-                    className="w-full p-3 bg-white rounded border border-green-200 focus:border-green-400 focus:ring-1 focus:ring-green-400 text-sm resize-y min-h-[3rem] font-sans leading-relaxed"
-                    rows={Math.max(2, (t.length / 60) + 1)}
-                  />
-                </div>
-              ) : null;
-            })
+            pages.map(({ page, paragraphs: pageParas }) => (
+              <TranslationPageGroup
+                key={page}
+                pageNum={page}
+                paragraphs={pageParas}
+                translations={translations}
+                onTextChange={updateTranslation}
+              />
+            ))
           ) : (
             <div className="text-center text-gray-400 mt-20">
               <p className="text-lg">No translations yet.</p>

@@ -21,17 +21,20 @@ export default function FolderImporter({ onImport, disabled }) {
       const results = await ocrMultipleImages(imageFiles, () => {});
 
       const allParagraphs = [];
+      const pageInfo = {};
       let paragraphIndex = 0;
       for (const r of results) {
         if (r.error) {
           console.warn(`OCR error for ${r.filename}: ${r.error}`);
         }
+        pageInfo[r.page] = r.filename;
         for (const text of r.paragraphs) {
           if (text.trim()) {
             allParagraphs.push({
               id: `para_${paragraphIndex}`,
               index: paragraphIndex,
               page: r.page,
+              filename: r.filename,
               text: text.trim(),
             });
             paragraphIndex++;
