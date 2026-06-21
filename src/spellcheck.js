@@ -1,4 +1,5 @@
 import nspell from 'nspell';
+import { getReOcrWorker } from './ocr';
 
 let spellInstance = null;
 let spellPromise = null;
@@ -201,4 +202,35 @@ function detectLang(text) {
   if (/[\u0C80-\u0CFF]/.test(text)) return 'kn';
   if (/[\u0D00-\u0D7F]/.test(text)) return 'ml';
   return 'en-US';
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+export async function reOcrRegion(imageData, bbox, padding) {
+  const pad = padding !== undefined ? padding : Math.max(8, (bbox.x1 - bbox.x0) * 0.3);
+  const img = await loadImage(imageData);
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+  const x = Math.max(0, bbox.x0 - pad);
+  const y = Math.max(0, bbox.y0 - pad);
+  const w = Math.min(iw - x, (bbox.x1 - bbox.x0) + pad * 2);
+  const h = Math.min(ih - y, (bbox.y1 - bbox.y0) + pad * 2);
+  if (w < 4 || h < 4) return '';
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+
+  const worker = await getReOcrWorker();
+  const { data } = await worker.recognize(canvas);
+  return data.text.trim();
 }

@@ -1,6 +1,7 @@
 import { createWorker } from 'tesseract.js';
 
 let worker = null;
+let reOcrWorker = null;
 let progressCallback = null;
 
 export function onProgress(cb) {
@@ -24,6 +25,19 @@ async function getWorker() {
     tessedit_pageseg_mode: '3', // PSM_AUTO – automatic page segmentation
   });
   return worker;
+}
+
+export async function getReOcrWorker() {
+  if (reOcrWorker) return reOcrWorker;
+  reOcrWorker = await createWorker('hin+eng+san', 1, {
+    cacheMethod: 'none',
+    logger: () => {},
+  });
+  // Use single-line mode for re-OCR on cropped regions
+  await reOcrWorker.setParameters({
+    tessedit_pageseg_mode: '7',
+  });
+  return reOcrWorker;
 }
 
 function groupLinesIntoParagraphs(lines) {
