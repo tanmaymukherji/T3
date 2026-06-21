@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, createRef } f
 import { translate } from '../../translation';
 import { generateDocx } from '../../docx';
 import SmartTextarea from './SmartTextarea';
-import SuggestionButton from './SuggestionButton';
+import SuggestionButton, { ReScanButton } from './SuggestionButton';
 import CONFIG from '../../config';
 
 function parseParagraphs(project) {
@@ -82,7 +82,8 @@ function PageGroup({ pageNum, paragraphs, originals, translations, translatingIn
         return (
           <div key={p.id || p.index} className="mb-2 ml-2">
             <div className="flex items-center gap-2 mb-0.5">
-              <SuggestionButton
+              <SuggestionButton textareaRef={textareaRefs.current[p.index]} />
+              <ReScanButton
                 textareaRef={textareaRefs.current[p.index]}
                 imageData={imageData}
                 lines={linesByIndex[p.index]}
@@ -147,7 +148,8 @@ function TranslationPageGroup({ pageNum, paragraphs, translations, onTextChange,
         return (
           <div key={p.id || p.index} className="mb-2 ml-2">
             <div className="flex items-center gap-2 mb-0.5">
-              <SuggestionButton
+              <SuggestionButton textareaRef={textareaRefs.current[p.index]} />
+              <ReScanButton
                 textareaRef={textareaRefs.current[p.index]}
                 imageData={imageData}
                 lines={linesByIndex[p.index]}

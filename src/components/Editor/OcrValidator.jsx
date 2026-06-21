@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import SmartTextarea from './SmartTextarea';
-import SuggestionButton from './SuggestionButton';
+import SuggestionButton, { ReScanButton } from './SuggestionButton';
 
 function ZoomableImage({ src, alt, focusBox }) {
   const containerRef = useRef(null);
@@ -303,12 +303,11 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
               return (
                 <div key={p.index} className="mb-3">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <SuggestionButton
+                    <SuggestionButton textareaRef={textareaRefs.current[p.index]} />
+                    <ReScanButton
                       textareaRef={textareaRefs.current[p.index]}
                       imageData={pageImage?.data}
                       lines={p.lines}
-                      paraIndex={idx}
-                      totalParas={pageParagraphs.length}
                       onFocusImage={setFocusBbox}
                     />
                     <span className="text-[11px] text-gray-400 font-mono">¶{p.index + 1}</span>

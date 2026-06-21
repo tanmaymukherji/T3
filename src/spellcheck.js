@@ -213,10 +213,12 @@ function loadImage(src) {
   });
 }
 
+const MAX_DIM = 1200;
+
 export async function reOcrRegion(imageData, bbox, padding) {
   const img = await loadImage(imageData);
-  const iw = img.naturalWidth;
-  const ih = img.naturalHeight;
+  let iw = img.naturalWidth;
+  let ih = img.naturalHeight;
 
   let sx, sy, sw, sh;
   if (bbox && typeof bbox.x0 === 'number') {
@@ -230,11 +232,19 @@ export async function reOcrRegion(imageData, bbox, padding) {
     sx = 0; sy = 0; sw = iw; sh = ih;
   }
 
+  // Scale down if region exceeds MAX_DIM to keep API payload manageable
+  let scale = 1;
+  if (sw > MAX_DIM || sh > MAX_DIM) {
+    scale = Math.min(MAX_DIM / sw, MAX_DIM / sh);
+  }
+  const cw = Math.round(sw * scale);
+  const ch = Math.round(sh * scale);
+
   const canvas = document.createElement('canvas');
-  canvas.width = sw;
-  canvas.height = sh;
+  canvas.width = cw;
+  canvas.height = ch;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
 
   const base64 = canvas.toDataURL('image/png');
   const apiKey = CONFIG.OCR_SPACE_API_KEY;
@@ -254,7 +264,19 @@ export async function reOcrRegion(imageData, bbox, padding) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params,
   });
-  const data = await res.json();
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Invalid JSON response: ${text.slice(0, 200)}`);
+  }
 
   if (data.OCRExitCode === 1 && data.ParsedResults && data.ParsedResults.length > 0) {
     return data.ParsedResults[0].ParsedText.trim();

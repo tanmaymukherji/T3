@@ -15,20 +15,107 @@ function findLineBbox(lines, selStart, selEnd) {
   return null;
 }
 
-export default function SuggestionButton({ textareaRef, imageData, lines, paraIndex, totalParas, onFocusImage }) {
+export function ReScanButton({ textareaRef, imageData, lines, onFocusImage }) {
+  const btnRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [result, setResult] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [pos, setPos] = useState({});
+  const [selPreview, setSelPreview] = useState('');
+
+  const close = useCallback(() => { setOpen(false); setResult(''); setLoading(false); }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (!e.target.closest('.rescan-popup') && !e.target.closest('.rescan-btn')) close(); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, close]);
+
+  const handleClick = useCallback(() => {
+    const ta = textareaRef?.current;
+    if (!ta) return;
+    const sel = ta.selectionStart;
+    const sele = ta.selectionEnd;
+    const text = sel !== sele ? ta.value.substring(sel, sele).trim() : ta.value.trim();
+    if (!text) { alert('The textarea is empty — nothing to cross-check.'); return; }
+
+    const rect = btnRef.current?.getBoundingClientRect();
+    setPos({ left: rect ? rect.left : 0, top: rect ? rect.bottom + 4 : 0 });
+    setSelPreview(text.length > 80 ? text.slice(0, 80) + '...' : text);
+    setOpen(true);
+    setResult('');
+    setLoading(true);
+
+    if (imageData) {
+      let bbox = null;
+      if (lines && lines.length > 0 && sel !== sele) {
+        const found = findLineBbox(lines, sel, sele);
+        if (found && found.bbox && typeof found.bbox.x0 === 'number') {
+          bbox = found.bbox;
+          if (onFocusImage) onFocusImage(bbox);
+        }
+      }
+      reOcrRegion(imageData, bbox).then((txt) => {
+        setResult(txt || '(empty result)');
+        setLoading(false);
+      }).catch((err) => {
+        setResult('Error: ' + (err?.message || err || 'OCR.space API failed'));
+        setLoading(false);
+      });
+    } else {
+      setResult('No image available for this page.');
+      setLoading(false);
+    }
+  }, [textareaRef, imageData, lines, onFocusImage]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={handleClick}
+        className="rescan-btn text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded hover:bg-orange-200"
+        title="Re-scan image region with OCR.space"
+      >
+        ⟳ Re-scan
+      </button>
+      {open && (
+        <div
+          className="rescan-popup fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[280px] max-w-[420px] text-sm"
+          style={{ left: pos.left, top: pos.top }}
+        >
+          <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b border-gray-100 truncate">
+            Selected: &ldquo;{selPreview}&rdquo;
+          </div>
+          <div className="px-3 py-2">
+            {loading ? (
+              <div className="text-xs text-gray-400 animate-pulse">Scanning with OCR.space...</div>
+            ) : (
+              <div className={`text-sm leading-relaxed break-words whitespace-pre-wrap rounded p-2 border ${
+                result.startsWith('Error:')
+                  ? 'text-red-700 bg-red-50 border-red-200'
+                  : 'text-gray-800 bg-indigo-50 border-indigo-100'
+              }`}>
+                {result}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function SuggestionButton({ textareaRef }) {
   const btnRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [word, setWord] = useState('');
-  const [selStart, setSelStart] = useState(0);
-  const [selEnd, setSelEnd] = useState(0);
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [type, setType] = useState('none');
   const [pos, setPos] = useState({});
-  const [reOcrText, setReOcrText] = useState('');
-  const [reOcrLoading, setReOcrLoading] = useState(false);
 
-  const close = useCallback(() => { setOpen(false); setSuggestions([]); setReOcrText(''); setReOcrLoading(false); }, []);
+  const close = useCallback(() => { setOpen(false); setSuggestions([]); }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -50,42 +137,16 @@ export default function SuggestionButton({ textareaRef, imageData, lines, paraIn
     setPos({ left: rect ? rect.left : 0, top: rect ? rect.bottom + 4 : 0 });
 
     setWord(selected);
-    setSelStart(sel);
-    setSelEnd(sele);
     setOpen(true);
     setLoading(true);
     setSuggestions([]);
-    setReOcrText('');
-    setReOcrLoading(false);
 
     fetchSuggestions(selected, ta.value, sel, sele).then((result) => {
       setType(result.type);
       setSuggestions(result.alternatives);
       setLoading(false);
     });
-
-    // Always attempt re-OCR when image is available
-    if (imageData) {
-      let bbox = null;
-      // Try to find line-level bbox first
-      if (lines && lines.length > 0) {
-        const found = findLineBbox(lines, sel, sele);
-        if (found && found.bbox && typeof found.bbox.x0 === 'number') {
-          bbox = found.bbox;
-          if (onFocusImage) onFocusImage(bbox);
-        }
-      }
-      // Re-OCR (region if bbox found, full image otherwise)
-      setReOcrLoading(true);
-      reOcrRegion(imageData, bbox).then((text) => {
-        setReOcrText(text);
-        setReOcrLoading(false);
-      }).catch((err) => {
-        setReOcrText('Error: ' + (err?.message || err || 'OCR API failed'));
-        setReOcrLoading(false);
-      });
-    }
-  }, [textareaRef, imageData, lines, onFocusImage]);
+  }, [textareaRef]);
 
   const handleReplace = useCallback((replacement) => {
     const ta = textareaRef?.current;
@@ -98,8 +159,6 @@ export default function SuggestionButton({ textareaRef, imageData, lines, paraIn
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     close();
   }, [textareaRef, close]);
-
-  const showPreview = imageData;
 
   return (
     <>
@@ -115,25 +174,6 @@ export default function SuggestionButton({ textareaRef, imageData, lines, paraIn
           className="suggest-popup fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[260px] text-sm max-h-[80vh] overflow-y-auto"
           style={{ left: pos.left, top: pos.top }}
         >
-          {showPreview && (
-            <div className="px-3 py-2 border-b border-gray-100">
-              <div className="text-[10px] text-gray-400 mb-1">
-                {reOcrLoading ? 'Re-scanning image region...' : reOcrText ? (reOcrText.startsWith('Error:') ? 'Scan error:' : 'Fresh scan result:') : 'Image reference'}
-              </div>
-              {!reOcrLoading && reOcrText && (
-                <div className={`text-sm font-medium rounded p-2 mb-2 border leading-relaxed break-words ${
-                  reOcrText.startsWith('Error:')
-                    ? 'text-red-700 bg-red-50 border-red-200'
-                    : 'text-gray-800 bg-indigo-50 border-indigo-100'
-                }`}>
-                  {reOcrText}
-                </div>
-              )}
-              {reOcrLoading && (
-                <div className="text-xs text-gray-400 animate-pulse py-2">Scanning with OCR.space...</div>
-              )}
-            </div>
-          )}
           <div className="px-3 py-1.5 text-xs text-gray-400 border-b border-gray-100 truncate max-w-[320px]">
             Selected: &ldquo;{word}&rdquo;
           </div>
