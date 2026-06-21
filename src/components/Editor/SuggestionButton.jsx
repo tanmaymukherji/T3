@@ -15,57 +15,71 @@ function findLineBbox(lines, selStart, selEnd) {
   return null;
 }
 
-function PreviewCanvas({ imageData, lines, selStart, selEnd }) {
+function PreviewCanvas({ imageData, lines, selStart, selEnd, paraIndex, totalParas }) {
   const canvasRef = useRef(null);
-  const [imgLoaded, setImgLoaded] = useState(false);
   const [lineText, setLineText] = useState('');
 
-  const found = findLineBbox(lines, selStart, selEnd);
-  const hasBbox = found && found.bbox && typeof found.bbox.x0 === 'number';
-
   useEffect(() => {
-    if (!hasBbox || !imageData) return;
-    setLineText(found.lineText);
-    setImgLoaded(false);
+    const canvas = canvasRef.current;
+    if (!canvas || !imageData) return;
+    const ctx = canvas.getContext('2d');
 
     const img = new window.Image();
     img.onload = () => {
-      setImgLoaded(true);
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-
-      const { bbox } = found;
       const iw = img.naturalWidth;
       const ih = img.naturalHeight;
-      const bx0 = Math.max(0, bbox.x0);
-      const by0 = Math.max(0, bbox.y0);
-      const bx1 = Math.min(iw, bbox.x1);
-      const by1 = Math.min(ih, bbox.y1);
-      const bw = bx1 - bx0;
-      const bh = by1 - by0;
-      if (bw < 2 || bh < 2) return;
+      if (iw < 1 || ih < 1) return;
 
-      const pad = Math.max(4, bh * 0.3);
-      const cropX = Math.max(0, bx0 - pad);
-      const cropY = Math.max(0, by0 - pad);
-      const cropW = Math.min(iw - cropX, bw + pad * 2);
-      const cropH = Math.min(ih - cropY, bh + pad * 2);
-      const aspect = cropW / cropH;
+      // Try precise bbox crop first
+      const found = lines && lines.length > 0 ? findLineBbox(lines, selStart, selEnd) : null;
+      if (found && found.bbox && typeof found.bbox.x0 === 'number') {
+        setLineText(found.lineText);
+        const { bbox } = found;
+        const bx0 = Math.max(0, bbox.x0);
+        const by0 = Math.max(0, bbox.y0);
+        const bx1 = Math.min(iw, bbox.x1);
+        const by1 = Math.min(ih, bbox.y1);
+        const bw = bx1 - bx0;
+        const bh = by1 - by0;
+        if (bw >= 2 && bh >= 2) {
+          const pad = Math.max(4, bh * 0.3);
+          const cropX = Math.max(0, bx0 - pad);
+          const cropY = Math.max(0, by0 - pad);
+          const cropW = Math.min(iw - cropX, bw + pad * 2);
+          const cropH = Math.min(ih - cropY, bh + pad * 2);
+          const aspect = cropW / cropH;
+          const ch = Math.min(300 / aspect, 150);
+          const cw = ch * aspect;
+          canvas.width = cw;
+          canvas.height = ch;
+          ctx.clearRect(0, 0, cw, ch);
+          ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cw, ch);
+          return;
+        }
+      }
+
+      // Fallback: approximate position from paragraph index
+      const bandH = Math.max(20, ih / (totalParas || 1));
+      const bandY = Math.max(0, (paraIndex || 0) * bandH);
+      const aspect = iw / ih;
       const ch = Math.min(300 / aspect, 150);
       const cw = ch * aspect;
-
       canvas.width = cw;
       canvas.height = ch;
       ctx.clearRect(0, 0, cw, ch);
-      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cw, ch);
+      ctx.drawImage(img, 0, 0, iw, ih, 0, 0, cw, ch);
+      // Highlight band
+      const scaleY = ch / ih;
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.2)';
+      ctx.fillRect(0, bandY * scaleY, cw, bandH * scaleY);
+      ctx.strokeStyle = 'rgba(99, 102, 241, 0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(0, bandY * scaleY, cw, bandH * scaleY);
+      setLineText('');
     };
-    img.onerror = () => setImgLoaded(false);
+    img.onerror = () => {};
     img.src = imageData;
-  }, [imageData, lines, selStart, selEnd]);
-
-  if (!hasBbox) return <div className="text-[10px] text-gray-400 italic py-1">Image crop: re-import images to enable line-by-line preview</div>;
-  if (!imgLoaded) return <div className="text-[10px] text-gray-400 italic py-1">Loading image preview...</div>;
+  }, [imageData, lines, selStart, selEnd, paraIndex, totalParas]);
 
   return (
     <div>
@@ -83,7 +97,7 @@ function PreviewCanvas({ imageData, lines, selStart, selEnd }) {
   );
 }
 
-export default function SuggestionButton({ textareaRef, imageData, lines }) {
+export default function SuggestionButton({ textareaRef, imageData, lines, paraIndex, totalParas }) {
   const btnRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [word, setWord] = useState('');
@@ -141,7 +155,7 @@ export default function SuggestionButton({ textareaRef, imageData, lines }) {
     close();
   }, [textareaRef, close]);
 
-  const showPreview = imageData && lines;
+  const showPreview = imageData;
 
   return (
     <>
@@ -164,6 +178,8 @@ export default function SuggestionButton({ textareaRef, imageData, lines }) {
                 lines={lines}
                 selStart={selStart}
                 selEnd={selEnd}
+                paraIndex={paraIndex}
+                totalParas={totalParas}
               />
             </div>
           )}

@@ -257,7 +257,7 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
               <p className="text-lg">No paragraphs on this page</p>
             </div>
           ) : (
-            pageParagraphs.map((p) => {
+            pageParagraphs.map((p, idx) => {
               const text = getText(p);
               const rows = Math.max(2, text.split('\n').length, Math.ceil(text.length / 60));
               const isEdited = edited[p.index] !== undefined && edited[p.index] !== p.text;
@@ -269,6 +269,8 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
                       textareaRef={textareaRefs.current[p.index]}
                       imageData={pageImage?.data}
                       lines={p.lines}
+                      paraIndex={idx}
+                      totalParas={pageParagraphs.length}
                     />
                     <span className="text-[11px] text-gray-400 font-mono">¶{p.index + 1}</span>
                     {isEdited && <span className="text-[11px] text-amber-600 font-medium">edited</span>}
