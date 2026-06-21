@@ -48,25 +48,23 @@ export function ReScanButton({ textareaRef, imageData, lines, onFocusImage }) {
     setLoading(true);
 
     if (imageData) {
+      // Try line-level crop if bbox data is available
+      let bbox = null;
       if (lines && lines.length > 0 && sel !== sele) {
         const found = findLineBbox(lines, sel, sele);
         if (found && found.bbox && typeof found.bbox.x0 === 'number') {
-          if (onFocusImage) onFocusImage(found.bbox);
-          reOcrRegion(imageData, found.bbox).then((txt) => {
-            setResult(txt || '(empty result)');
-            setLoading(false);
-          }).catch((err) => {
-            setResult('Error: ' + (err?.message || err || 'OCR.space API failed'));
-            setLoading(false);
-          });
-        } else {
-          setResult('Could not locate the selected text in the image. Try selecting a different portion.');
-          setLoading(false);
+          bbox = found.bbox;
+          if (onFocusImage) onFocusImage(bbox);
         }
-      } else {
-        setResult('Select a portion of text first to re-scan just that region from the image.');
-        setLoading(false);
       }
+      reOcrRegion(imageData, bbox).then((txt) => {
+        const label = bbox ? '(cropped region)' : '(full page)';
+        setResult(txt ? `${txt}\n\n— ${label}` : `(empty result) ${label}`);
+        setLoading(false);
+      }).catch((err) => {
+        setResult('Error: ' + (err?.message || err || 'OCR.space API failed'));
+        setLoading(false);
+      });
     } else {
       setResult('No image available for this page.');
       setLoading(false);
