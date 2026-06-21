@@ -3,6 +3,7 @@ import axios from 'axios';
 import DocumentLibrary from './components/Library/DocumentLibrary';
 import SplitPaneEditor from './components/Editor/SplitPaneEditor';
 import FolderImporter from './components/Importer/FolderImporter';
+import ErrorBanner from './components/ErrorBanner';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -12,10 +13,21 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [view, setView] = useState('library');
+  const [backendStatus, setBackendStatus] = useState(null);
 
   useEffect(() => {
+    checkBackend();
     loadProjects();
   }, []);
+
+  const checkBackend = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/status`);
+      setBackendStatus(res.data);
+    } catch (err) {
+      setBackendStatus({ error: 'Backend not reachable at ' + API_BASE });
+    }
+  };
 
   const loadProjects = async () => {
     try {
@@ -32,11 +44,14 @@ export default function App() {
     try {
       const res = await axios.post(`${API_BASE}/api/import`, { folder_path: folderPath });
       const project = res.data;
-      setProjects((prev) => [...prev, project]);
+      setProjects((prev) => {
+        const exists = prev.find((p) => p.id === project.id);
+        return exists ? prev.map((p) => (p.id === project.id ? project : p)) : [...prev, project];
+      });
       setActiveProject(project);
       setView('editor');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Import failed');
+      setError(err.response?.data?.detail || 'Import failed: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -93,35 +108,39 @@ export default function App() {
           </button>
         </div>
         <div className="flex items-center gap-3">
+          {backendStatus && !backendStatus.error && !backendStatus.tesseract && (
+            <span className="text-amber-300 text-xs px-2 py-1 bg-amber-800 rounded" title="Install Tesseract OCR for text extraction">
+              ⚠ Tesseract not found
+            </span>
+          )}
           {activeProject && (
-            <>
-              <button onClick={handleSave} disabled={loading}
-                className="bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded text-sm disabled:opacity-50">
-                {loading ? 'Saving...' : 'Save'}
-              </button>
-            </>
+            <button onClick={handleSave} disabled={loading}
+              className="bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded text-sm disabled:opacity-50">
+              {loading ? 'Saving...' : 'Save'}
+            </button>
           )}
           <FolderImporter onImport={handleImportFolder} disabled={loading} />
         </div>
       </header>
-      {error && (
-        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 px-4 py-2 text-sm">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 font-bold">&times;</button>
-        </div>
-      )}
+
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+
       <main className="flex-1 overflow-hidden">
         {view === 'library' && (
           <DocumentLibrary projects={projects} onSelect={handleSelectProject} onRefresh={loadProjects} />
         )}
-        {view === 'editor' && activeProject && (
+        {view === 'editor' && activeProject ? (
           <SplitPaneEditor
             project={activeProject}
             onSave={handleSave}
             onSaveTranslation={handleSaveTranslation}
             loading={loading}
           />
-        )}
+        ) : view === 'editor' && !activeProject ? (
+          <div className="h-full flex items-center justify-center text-gray-500">
+            <p>Select a document from the Library to start editing.</p>
+          </div>
+        ) : null}
       </main>
     </div>
   );
