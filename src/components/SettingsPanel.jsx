@@ -8,11 +8,15 @@ export default function SettingsPanel({ onClose }) {
   const [bhashiniKey, setBhashiniKey] = useState(
     localStorage.getItem('bhashini_api_key') || ''
   );
+  const [libreKey, setLibreKey] = useState(
+    localStorage.getItem('libretranslate_api_key') || ''
+  );
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
     localStorage.setItem('hf_api_key', hfKey);
     localStorage.setItem('bhashini_api_key', bhashiniKey);
+    localStorage.setItem('libretranslate_api_key', libreKey);
     CONFIG.HUGGINGFACE_API_KEY = hfKey;
     CONFIG.BHASHINI_API_KEY = bhashiniKey;
     setSaved(true);
@@ -57,6 +61,22 @@ export default function SettingsPanel({ onClose }) {
             />
             <p className="text-xs text-gray-500 mt-1">
               Optional. If set, will be used for translations (with HF fallback).
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              LibreTranslate API Key
+            </label>
+            <input
+              type="password"
+              value={libreKey}
+              onChange={(e) => setLibreKey(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm"
+              placeholder="Get a free key at portal.libretranslate.com"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Optional. Free tier available at portal.libretranslate.com.
             </p>
           </div>
         </div>

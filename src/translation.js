@@ -45,9 +45,14 @@ function isSanskrit(text) {
 async function translateMyMemory(text, tgtLang) {
   const src = detectLanguage(text);
   const langpair = `${src}|${tgtLang}`;
-  const url = `${MYMEMORY_URL}?q=${encodeURIComponent(text)}&langpair=${langpair}`;
 
-  const response = await fetch(url);
+  // Use POST with form data to avoid URL length limits (simple content type, no CORS preflight)
+  const response = await fetch(MYMEMORY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langpair)}`,
+  });
+
   if (!response.ok) {
     throw new Error(`MyMemory error (${response.status})`);
   }
