@@ -91,6 +91,7 @@ export default function FolderImporter({ onImport, disabled }) {
           files.push(file);
         }
       }
+      files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       await processFiles(files, handle.name);
     } catch (err) {
       if (err.name === 'AbortError' || err.name === 'SecurityError') return;
