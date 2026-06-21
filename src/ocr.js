@@ -31,6 +31,7 @@ function groupLinesIntoParagraphs(lines) {
 
   const paragraphs = [];
   let current = [];
+  let currentLines = [];
   let prevBottom = null;
 
   for (const line of lines) {
@@ -50,18 +51,20 @@ function groupLinesIntoParagraphs(lines) {
       const wouldBeSingle = current.length === 0;
       if (gap > lineHeight * 2.5 && !wouldBeSingle) {
         if (current.length > 0) {
-          paragraphs.push(current.join('\n').trim());
+          paragraphs.push({ text: current.join('\n').trim(), lines: currentLines });
           current = [];
+          currentLines = [];
         }
       }
     }
 
     current.push(text);
+    currentLines.push({ text, bbox });
     if (bbox) prevBottom = lineBottom;
   }
 
   if (current.length > 0) {
-    paragraphs.push(current.join('\n').trim());
+    paragraphs.push({ text: current.join('\n').trim(), lines: currentLines });
   }
 
   return paragraphs;
@@ -110,7 +113,7 @@ export async function ocrImage(imageFile, onProgressFn) {
     }
     const grouped = groupLinesIntoParagraphs(allLines);
     if (grouped.length > 0) {
-      paragraphs = grouped.map((text) => ({ text, lines: [] }));
+      paragraphs = grouped;
     }
   }
 
