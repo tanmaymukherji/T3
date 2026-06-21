@@ -46,7 +46,11 @@ export function ReScanButton({ textareaRef, imageData, lines, onFocusImage, para
     if (!text) { alert('The textarea is empty — nothing to cross-check.'); return; }
 
     const rect = btnRef.current?.getBoundingClientRect();
-    setPos({ left: rect ? rect.left : 0, top: rect ? rect.bottom + 4 : 0 });
+    let left = rect ? rect.left : 0;
+    let top = rect ? rect.bottom + 4 : 0;
+    if (left + 420 > window.innerWidth) left = Math.max(0, window.innerWidth - 420);
+    if (top + 300 > window.innerHeight) top = Math.max(0, (rect ? rect.top : 0) - 300);
+    setPos({ left, top });
     setSelPreview(text.length > 80 ? text.slice(0, 80) + '...' : text);
     setOpen(true);
     setResult('');
@@ -118,14 +122,15 @@ export function ReScanButton({ textareaRef, imageData, lines, onFocusImage, para
           <div className="px-3 py-2">
             {loading ? (
               <div className="text-xs text-gray-400 animate-pulse">Scanning with OCR.space...</div>
+            ) : result.startsWith('Error:') ? (
+              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{result}</div>
             ) : (
-              <div className={`text-sm leading-relaxed break-words whitespace-pre-wrap rounded p-2 border ${
-                result.startsWith('Error:')
-                  ? 'text-red-700 bg-red-50 border-red-200'
-                  : 'text-gray-800 bg-indigo-50 border-indigo-100'
-              }`}>
-                {result}
-              </div>
+              <textarea
+                readOnly
+                className="w-full text-sm text-gray-800 bg-indigo-50 border border-indigo-100 rounded p-2 resize-none outline-none cursor-text select-text"
+                style={{ minHeight: 60, maxHeight: '55vh' }}
+                value={result}
+              />
             )}
           </div>
         </div>
