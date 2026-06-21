@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import SmartTextarea from './SmartTextarea';
 import SuggestionButton from './SuggestionButton';
 
-function ZoomableImage({ src, alt }) {
+function ZoomableImage({ src, alt, focusBox }) {
   const containerRef = useRef(null);
   const imgRef = useRef(null);
   const [dims, setDims] = useState({ cw: 1, ch: 1, iw: 1, ih: 1 });
@@ -12,16 +12,19 @@ function ZoomableImage({ src, alt }) {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragPanStart, setDragPanStart] = useState({ x: 0, y: 0 });
   const [loaded, setLoaded] = useState(false);
+  const focusCounterRef = useRef(0);
 
-  // Track container size
+  // Track container size with proper fallback
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const { inlineSize, blockSize } = entry.contentBoxSize?.[0] || {};
-        if (inlineSize && blockSize) {
-          setDims((prev) => ({ ...prev, cw: inlineSize, ch: blockSize }));
+        const sz = entry.contentBoxSize?.[0] || {};
+        const cw = sz.inlineSize || entry.contentRect.width;
+        const ch = sz.blockSize || entry.contentRect.height;
+        if (cw && ch) {
+          setDims((prev) => ({ ...prev, cw, ch }));
         }
       }
     });
@@ -51,6 +54,36 @@ function ZoomableImage({ src, alt }) {
       setPan({ x: 0, y: 0 });
     }
   }, [loaded, dims.cw, dims.ch, dims.iw, dims.ih]);
+
+  // Focus on a specific image region when focusBox changes
+  useEffect(() => {
+    if (!loaded || !focusBox || dims.cw <= 0 || dims.iw <= 0) return;
+
+    const bx = (focusBox.x0 + focusBox.x1) / 2;
+    const by = (focusBox.y0 + focusBox.y1) / 2;
+    const bw = focusBox.x1 - focusBox.x0;
+    const bh = focusBox.y1 - focusBox.y0;
+
+    const zoomForW = (dims.cw * 0.6) / bw;
+    const zoomForH = (dims.ch * 0.6) / bh;
+    const newZoom = Math.max(fitZoom * 0.5, Math.min(5, Math.min(zoomForW, zoomForH)));
+
+    const newPanX = -(bx - dims.iw / 2) * newZoom;
+    const newPanY = -(by - dims.ih / 2) * newZoom;
+
+    focusCounterRef.current += 1;
+    console.log(`[ZoomableImage] focus #${focusCounterRef.current}:`, {
+      bbox: focusBox,
+      newZoom,
+      newPanX,
+      newPanY,
+      dims,
+      fitZoom
+    });
+
+    setZoom(newZoom);
+    setPan({ x: newPanX, y: newPanY });
+  }, [focusBox, loaded, dims, fitZoom]);
 
   const clampPan = useCallback((x, y, z) => {
     const zf = z || zoom;
@@ -172,6 +205,7 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
 
   const [currentPage, setCurrentPage] = useState(pages.length > 0 ? pages[0] : 1);
   const [edited, setEdited] = useState({});
+  const [focusBbox, setFocusBbox] = useState(null);
   const textareaRefs = useRef({});
 
   // Reset to first page if pages change
@@ -242,7 +276,7 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
         {/* Left: Image */}
         <div className="w-1/2 border-r border-gray-300">
           {pageImage ? (
-            <ZoomableImage src={pageImage.data} alt={`Page ${currentPage}`} />
+            <ZoomableImage src={pageImage.data} alt={`Page ${currentPage}`} focusBox={focusBbox} />
           ) : (
             <div className="h-full flex items-center justify-center text-gray-400 text-sm bg-gray-800">
               No image available
@@ -271,6 +305,7 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
                       lines={p.lines}
                       paraIndex={idx}
                       totalParas={pageParagraphs.length}
+                      onFocusImage={setFocusBbox}
                     />
                     <span className="text-[11px] text-gray-400 font-mono">¶{p.index + 1}</span>
                     {isEdited && <span className="text-[11px] text-amber-600 font-medium">edited</span>}

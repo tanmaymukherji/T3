@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Translation Tool</title>
+</head>
+<body>
+  <div id="root"></div>
   <script>
     window.onerror = function(msg, url, line, col, err) {
       document.getElementById('root').innerHTML =
@@ -21,9 +24,6 @@
     document.getElementById('root').innerHTML =
       '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#6b7280;font-size:18px">Loading Translation Tool...</div>';
   </script>
-</head>
-<body>
-  <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

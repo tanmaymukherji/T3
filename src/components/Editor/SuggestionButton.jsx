@@ -15,7 +15,7 @@ function findLineBbox(lines, selStart, selEnd) {
   return null;
 }
 
-export default function SuggestionButton({ textareaRef, imageData, lines, paraIndex, totalParas }) {
+export default function SuggestionButton({ textareaRef, imageData, lines, paraIndex, totalParas, onFocusImage }) {
   const btnRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [word, setWord] = useState('');
@@ -64,6 +64,16 @@ export default function SuggestionButton({ textareaRef, imageData, lines, paraIn
       setLoading(false);
     });
 
+    // Zoom main image to the selected line region
+    if (imageData && lines && lines.length > 0 && onFocusImage) {
+      const found = findLineBbox(lines, sel, sele);
+      console.log('[SuggestionButton] findLineBbox result:', found);
+      if (found && found.bbox && typeof found.bbox.x0 === 'number') {
+        console.log('[SuggestionButton] calling onFocusImage with bbox:', found.bbox);
+        onFocusImage(found.bbox);
+      }
+    }
+
     // Re-OCR the image region if bbox is available
     if (imageData && lines && lines.length > 0) {
       const found = findLineBbox(lines, sel, sele);
@@ -77,7 +87,7 @@ export default function SuggestionButton({ textareaRef, imageData, lines, paraIn
         });
       }
     }
-  }, [textareaRef, imageData, lines]);
+  }, [textareaRef, imageData, lines, onFocusImage]);
 
   const handleReplace = useCallback((replacement) => {
     const ta = textareaRef?.current;
