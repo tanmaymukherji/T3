@@ -214,54 +214,53 @@ function loadImage(src) {
 }
 
 export async function reOcrRegion(imageData, bbox, padding) {
-  const pad = padding !== undefined ? padding : Math.max(8, (bbox.x1 - bbox.x0) * 0.3);
   const img = await loadImage(imageData);
   const iw = img.naturalWidth;
   const ih = img.naturalHeight;
-  const x = Math.max(0, bbox.x0 - pad);
-  const y = Math.max(0, bbox.y0 - pad);
-  const w = Math.min(iw - x, (bbox.x1 - bbox.x0) + pad * 2);
-  const h = Math.min(ih - y, (bbox.y1 - bbox.y0) + pad * 2);
-  if (w < 4 || h < 4) return '';
+
+  let sx, sy, sw, sh;
+  if (bbox && typeof bbox.x0 === 'number') {
+    const pad = padding !== undefined ? padding : Math.max(8, (bbox.x1 - bbox.x0) * 0.3);
+    sx = Math.max(0, bbox.x0 - pad);
+    sy = Math.max(0, bbox.y0 - pad);
+    sw = Math.min(iw - sx, (bbox.x1 - bbox.x0) + pad * 2);
+    sh = Math.min(ih - sy, (bbox.y1 - bbox.y0) + pad * 2);
+    if (sw < 4 || sh < 4) return '';
+  } else {
+    sx = 0; sy = 0; sw = iw; sh = ih;
+  }
 
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = sw;
+  canvas.height = sh;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
 
-  // Re-OCR via OCR.space API instead of a second Tesseract worker
   const base64 = canvas.toDataURL('image/png');
   const apiKey = CONFIG.OCR_SPACE_API_KEY;
 
   if (!apiKey) return '';
 
-  try {
-    // OCREngine 3 supports 200+ languages with auto-detection (including Hindi).
-    // Engine 2 only covers Latin/Western + Chinese.
-    const params = new URLSearchParams({
-      apikey: apiKey,
-      OCREngine: '3',
-      base64Image: base64,
-      isOverlayRequired: 'false',
-      scale: 'true',
-    });
+  const params = new URLSearchParams({
+    apikey: apiKey,
+    OCREngine: '3',
+    base64Image: base64,
+    isOverlayRequired: 'false',
+    scale: 'true',
+  });
 
-    const res = await fetch('https://api.ocr.space/parse/image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
-    });
-    const data = await res.json();
+  const res = await fetch('https://api.ocr.space/parse/image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params,
+  });
+  const data = await res.json();
 
-    if (data.OCRExitCode === 1 && data.ParsedResults && data.ParsedResults.length > 0) {
-      return data.ParsedResults[0].ParsedText.trim();
-    }
-    const errMsg = Array.isArray(data.ErrorMessage)
-      ? data.ErrorMessage.join('; ')
-      : data.ErrorMessage || `OCR.space exit code ${data.OCRExitCode}`;
-    throw new Error(errMsg);
-  } catch (e) {
-    throw e;
+  if (data.OCRExitCode === 1 && data.ParsedResults && data.ParsedResults.length > 0) {
+    return data.ParsedResults[0].ParsedText.trim();
   }
+  const errMsg = Array.isArray(data.ErrorMessage)
+    ? data.ErrorMessage.join('; ')
+    : data.ErrorMessage || `OCR.space exit code ${data.OCRExitCode}`;
+  throw new Error(errMsg);
 }

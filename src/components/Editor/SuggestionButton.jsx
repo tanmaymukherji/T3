@@ -64,31 +64,26 @@ export default function SuggestionButton({ textareaRef, imageData, lines, paraIn
       setLoading(false);
     });
 
-    console.debug('[Suggest] imageData:', typeof imageData, imageData ? imageData.slice(0, 40) + '...' : null);
-    console.debug('[Suggest] lines:', lines?.length, lines?.length > 0 ? lines[0] : null);
-    if (imageData && lines && lines.length > 0) {
-      const found = findLineBbox(lines, sel, sele);
-      console.debug('[Suggest] findLineBbox result:', found);
-      if (found && found.bbox && typeof found.bbox.x0 === 'number') {
-        console.debug('[Suggest] bbox:', found.bbox);
-        // Re-OCR the image region
-        setReOcrLoading(true);
-        reOcrRegion(imageData, found.bbox).then((text) => {
-          console.debug('[Suggest] reOcrRegion result:', text ? text.slice(0, 80) : '(empty)');
-          setReOcrText(text);
-          setReOcrLoading(false);
-        }).catch((err) => {
-          console.error('[Suggest] reOcrRegion error:', err);
-          setReOcrText('Error: ' + (err?.message || err || 'OCR API failed'));
-          setReOcrLoading(false);
-        });
-        // Zoom main image to the selected line region
-        if (onFocusImage) onFocusImage(found.bbox);
-      } else {
-        console.debug('[Suggest] bbox not valid, skipping re-OCR');
+    // Always attempt re-OCR when image is available
+    if (imageData) {
+      let bbox = null;
+      // Try to find line-level bbox first
+      if (lines && lines.length > 0) {
+        const found = findLineBbox(lines, sel, sele);
+        if (found && found.bbox && typeof found.bbox.x0 === 'number') {
+          bbox = found.bbox;
+          if (onFocusImage) onFocusImage(bbox);
+        }
       }
-    } else {
-      console.debug('[Suggest] imageData/lines missing, skipping re-OCR');
+      // Re-OCR (region if bbox found, full image otherwise)
+      setReOcrLoading(true);
+      reOcrRegion(imageData, bbox).then((text) => {
+        setReOcrText(text);
+        setReOcrLoading(false);
+      }).catch((err) => {
+        setReOcrText('Error: ' + (err?.message || err || 'OCR API failed'));
+        setReOcrLoading(false);
+      });
     }
   }, [textareaRef, imageData, lines, onFocusImage]);
 
