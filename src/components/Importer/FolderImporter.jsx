@@ -20,21 +20,37 @@ export default function FolderImporter({ onImport, disabled }) {
 
       const results = await ocrMultipleImages(imageFiles, () => {});
 
+      // Convert images to base64 for storage
+      const allImages = [];
       const allParagraphs = [];
-      const pageInfo = {};
       let paragraphIndex = 0;
-      for (const r of results) {
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i];
+        const r = results[i] || {};
         if (r.error) {
           console.warn(`OCR error for ${r.filename}: ${r.error}`);
         }
-        pageInfo[r.page] = r.filename;
-        for (const text of r.paragraphs) {
+
+        // Convert file to base64
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
+
+        allImages.push({
+          page: r.page || i + 1,
+          filename: file.name,
+          data: dataUrl,
+        });
+
+        for (const text of (r.paragraphs || [])) {
           if (text.trim()) {
             allParagraphs.push({
               id: `para_${paragraphIndex}`,
               index: paragraphIndex,
-              page: r.page,
-              filename: r.filename,
+              page: r.page || i + 1,
+              filename: file.name,
               text: text.trim(),
             });
             paragraphIndex++;
@@ -54,6 +70,7 @@ export default function FolderImporter({ onImport, disabled }) {
         name,
         folder: folderName || 'upload',
         paragraphs: allParagraphs,
+        images: allImages,
       });
     } catch (err) {
       console.error('Import failed:', err);

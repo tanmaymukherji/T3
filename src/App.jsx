@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, Component } from 'react';
 import DocumentLibrary from './components/Library/DocumentLibrary';
 import SplitPaneEditor from './components/Editor/SplitPaneEditor';
+import OcrValidator from './components/Editor/OcrValidator';
 import FolderImporter from './components/Importer/FolderImporter';
 import SettingsPanel from './components/SettingsPanel';
 import ErrorBanner from './components/ErrorBanner';
@@ -48,6 +49,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [view, setView] = useState('library');
+  const [editorTab, setEditorTab] = useState('ocr');
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -80,6 +82,7 @@ export default function App() {
           content: htmlContent,
           paragraphsArray: result.paragraphs,
           total_paragraphs: result.paragraphs.length,
+          images: result.images || [],
         });
       } else if (typeof result === 'object' && result.id) {
         project = result;
@@ -89,6 +92,7 @@ export default function App() {
 
       await loadProjects();
       setActiveProject(project);
+      setEditorTab('ocr');
       setView('editor');
     } catch (err) {
       setError(err.message || 'Failed to create project');
@@ -99,6 +103,7 @@ export default function App() {
 
   const handleSelectProject = (project) => {
     setActiveProject(project);
+    setEditorTab(project.images?.length ? 'ocr' : 'translate');
     setView('editor');
   };
 
@@ -109,11 +114,32 @@ export default function App() {
       await deleteProject(project.id);
       if (activeProject?.id === project.id) {
         setActiveProject(null);
+        setEditorTab('ocr');
         setView('library');
       }
       await loadProjects();
     } catch (err) {
       setError('Delete failed: ' + err.message);
+    }
+  };
+
+  const handleSaveOcr = async (updatedParagraphs) => {
+    if (!activeProject) return;
+    setLoading(true);
+    try {
+      const htmlContent = updatedParagraphs
+        .map((p) => `<p data-page="${p.page}" data-filename="${p.filename || ''}">${p.text}</p>`)
+        .join('\n');
+      const updated = await saveProject({
+        ...activeProject,
+        content: htmlContent,
+        paragraphsArray: updatedParagraphs,
+      });
+      setActiveProject(updated);
+    } catch (err) {
+      setError('Save failed: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -175,11 +201,45 @@ export default function App() {
           />
         )}
         {view === 'editor' && activeProject && (
-          <SplitPaneEditor
-            project={activeProject}
-            onSave={handleSaveContent}
-            loading={loading}
-          />
+          <div className="h-full flex flex-col">
+            {/* Editor Tab Bar */}
+            <div className="bg-gray-200 border-b border-gray-300 px-4 py-0 flex items-center gap-0">
+              <button
+                onClick={() => setEditorTab('ocr')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  editorTab === 'ocr'
+                    ? 'border-indigo-600 text-indigo-700 bg-white'
+                    : 'border-transparent text-gray-600 hover:text-gray-800 hover:bg-gray-100'
+                }`}
+              >
+                OCR Validation
+              </button>
+              <button
+                onClick={() => setEditorTab('translate')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  editorTab === 'translate'
+                    ? 'border-indigo-600 text-indigo-700 bg-white'
+                    : 'border-transparent text-gray-600 hover:text-gray-800 hover:bg-gray-100'
+                }`}
+              >
+                Translation
+              </button>
+            </div>
+
+            {editorTab === 'ocr' ? (
+              <OcrValidator
+                images={activeProject.images || []}
+                paragraphs={activeProject.paragraphsArray || []}
+                onSaveParagraphs={handleSaveOcr}
+              />
+            ) : (
+              <SplitPaneEditor
+                project={activeProject}
+                onSave={handleSaveContent}
+                loading={loading}
+              />
+            )}
+          </div>
         )}
       </main>
 
