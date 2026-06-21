@@ -242,7 +242,7 @@ export async function reOcrRegion(imageData, bbox, padding) {
     const params = new URLSearchParams({
       apikey: apiKey,
       OCREngine: '3',
-      base64image: base64,
+      base64Image: base64,
       isOverlayRequired: 'false',
       scale: 'true',
     });
