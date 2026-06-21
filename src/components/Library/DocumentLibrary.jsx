@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function DocumentLibrary({ projects, onSelect, onRefresh }) {
+export default function DocumentLibrary({ projects, onSelect, onDelete, onRefresh }) {
   return (
     <div className="h-full p-6 overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
@@ -23,9 +23,16 @@ export default function DocumentLibrary({ projects, onSelect, onRefresh }) {
               <h3 className="font-medium truncate">{p.name}</h3>
               <p className="text-xs text-gray-500 mt-1">{new Date(p.created_at).toLocaleDateString()}</p>
               <p className="text-xs text-gray-400 mt-1 truncate">{p.folder_path}</p>
-              <div className="mt-2 flex gap-1 flex-wrap">
+              <div className="mt-2 flex gap-1 flex-wrap items-center">
                 <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded">Original</span>
                 <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">{p.total_paragraphs ?? (Array.isArray(p.paragraphs) ? p.paragraphs.length : p.paragraphs ?? 0)} paragraphs</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(p); }}
+                  className="ml-auto text-red-400 hover:text-red-600 text-xs px-2 py-0.5 rounded hover:bg-red-50"
+                  title="Delete document"
+                >
+                  Delete
+                </button>
               </div>
             </div>
           ))}

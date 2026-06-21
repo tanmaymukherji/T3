@@ -4,7 +4,7 @@ import SplitPaneEditor from './components/Editor/SplitPaneEditor';
 import FolderImporter from './components/Importer/FolderImporter';
 import SettingsPanel from './components/SettingsPanel';
 import ErrorBanner from './components/ErrorBanner';
-import { listProjects, saveProject } from './storage';
+import { listProjects, saveProject, deleteProject } from './storage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -102,6 +102,21 @@ export default function App() {
     setView('editor');
   };
 
+  const handleDeleteProject = async (project) => {
+    if (!project?.id) return;
+    if (!confirm(`Delete "${project.name}"? This cannot be undone.`)) return;
+    try {
+      await deleteProject(project.id);
+      if (activeProject?.id === project.id) {
+        setActiveProject(null);
+        setView('library');
+      }
+      await loadProjects();
+    } catch (err) {
+      setError('Delete failed: ' + err.message);
+    }
+  };
+
   const handleSaveContent = async (content, extraData) => {
     if (!activeProject) return;
     setLoading(true);
@@ -155,6 +170,7 @@ export default function App() {
           <DocumentLibrary
             projects={projects}
             onSelect={handleSelectProject}
+            onDelete={handleDeleteProject}
             onRefresh={loadProjects}
           />
         )}
