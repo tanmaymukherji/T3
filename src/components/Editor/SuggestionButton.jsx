@@ -48,21 +48,25 @@ export function ReScanButton({ textareaRef, imageData, lines, onFocusImage }) {
     setLoading(true);
 
     if (imageData) {
-      let bbox = null;
       if (lines && lines.length > 0 && sel !== sele) {
         const found = findLineBbox(lines, sel, sele);
         if (found && found.bbox && typeof found.bbox.x0 === 'number') {
-          bbox = found.bbox;
-          if (onFocusImage) onFocusImage(bbox);
+          if (onFocusImage) onFocusImage(found.bbox);
+          reOcrRegion(imageData, found.bbox).then((txt) => {
+            setResult(txt || '(empty result)');
+            setLoading(false);
+          }).catch((err) => {
+            setResult('Error: ' + (err?.message || err || 'OCR.space API failed'));
+            setLoading(false);
+          });
+        } else {
+          setResult('Could not locate the selected text in the image. Try selecting a different portion.');
+          setLoading(false);
         }
+      } else {
+        setResult('Select a portion of text first to re-scan just that region from the image.');
+        setLoading(false);
       }
-      reOcrRegion(imageData, bbox).then((txt) => {
-        setResult(txt || '(empty result)');
-        setLoading(false);
-      }).catch((err) => {
-        setResult('Error: ' + (err?.message || err || 'OCR.space API failed'));
-        setLoading(false);
-      });
     } else {
       setResult('No image available for this page.');
       setLoading(false);
@@ -81,7 +85,7 @@ export function ReScanButton({ textareaRef, imageData, lines, onFocusImage }) {
       </button>
       {open && (
         <div
-          className="rescan-popup fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[280px] max-w-[420px] text-sm"
+          className="rescan-popup fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[280px] max-w-[420px] text-sm max-h-[80vh] overflow-y-auto"
           style={{ left: pos.left, top: pos.top }}
         >
           <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b border-gray-100 truncate">
@@ -91,7 +95,7 @@ export function ReScanButton({ textareaRef, imageData, lines, onFocusImage }) {
             {loading ? (
               <div className="text-xs text-gray-400 animate-pulse">Scanning with OCR.space...</div>
             ) : (
-              <div className={`text-sm leading-relaxed break-words whitespace-pre-wrap rounded p-2 border ${
+              <div className={`text-sm leading-relaxed break-words whitespace-pre-wrap rounded p-2 border max-h-[60vh] overflow-y-auto ${
                 result.startsWith('Error:')
                   ? 'text-red-700 bg-red-50 border-red-200'
                   : 'text-gray-800 bg-indigo-50 border-indigo-100'
