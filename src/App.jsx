@@ -52,7 +52,18 @@ export default function App() {
   const [view, setView] = useState('library');
   const [editorTab, setEditorTab] = useState('ocr');
   const [showSettings, setShowSettings] = useState(false);
-  console.log('[App] render loading=', loading, 'view=', view);
+  console.error('[App] render loading=', loading, 'view=', view, 'error=', error);
+
+  // Auto-reset loading if stuck for more than 15 seconds
+  useEffect(() => {
+    if (!loading) return;
+    const id = setTimeout(() => {
+      console.error('[App] loading stuck for 15s, auto-resetting');
+      setLoading(false);
+      setError('Loading timed out — the operation did not complete.');
+    }, 15000);
+    return () => clearTimeout(id);
+  }, [loading]);
 
   useEffect(() => {
     loadProjects();
@@ -197,6 +208,12 @@ export default function App() {
   return (
     <ErrorBoundary>
     <div className="h-screen flex flex-col">
+      <div className="bg-yellow-200 text-yellow-900 px-4 py-1 text-xs font-mono flex gap-4">
+        <span>loading={String(loading)}</span>
+        <span>view={view}</span>
+        <span>error={error || 'none'}</span>
+        <span>projects={projects.length}</span>
+      </div>
       <header className="bg-slate-800 text-white px-6 py-3 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold">T³ - Tanmay's Translation Tool</h1>
