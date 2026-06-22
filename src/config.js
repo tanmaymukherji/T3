@@ -1,4 +1,4 @@
-// Configuration for Translation Tool
+// Configuration for T³ - Tanmay's Translation Tool
 // All API keys and settings in one place.
 
 function getLS(key, fallback = '') {

@@ -234,12 +234,22 @@ export default function SplitPaneEditor({ project, images, paragraphs: origParag
     const right = rightScrollRef.current;
     if (!left || !right) return;
 
+    function offsetTo(el, ancestor) {
+      let top = 0;
+      while (el && el !== ancestor) {
+        top += el.offsetTop;
+        el = el.offsetParent;
+      }
+      return top;
+    }
+
     function firstVisibleIndex(container) {
       const items = container.querySelectorAll('[data-para-index]');
       if (items.length === 0) return null;
       const st = container.scrollTop;
       for (let i = 0; i < items.length; i++) {
-        if (items[i].offsetTop + items[i].offsetHeight / 2 >= st - 10) {
+        const itemTop = offsetTo(items[i], container);
+        if (itemTop + items[i].offsetHeight / 2 >= st - 5) {
           return parseInt(items[i].getAttribute('data-para-index'), 10);
         }
       }
@@ -250,7 +260,7 @@ export default function SplitPaneEditor({ project, images, paragraphs: origParag
       const target = container.querySelector(`[data-para-index="${idx}"]`);
       if (!target) return;
       suppressSyncRef.current = true;
-      target.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+      target.scrollIntoView({ block: 'start', behavior: 'instant' });
       requestAnimationFrame(() => { suppressSyncRef.current = false; });
     }
 

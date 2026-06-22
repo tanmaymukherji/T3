@@ -163,7 +163,7 @@ export default function App() {
     <div className="h-screen flex flex-col">
       <header className="bg-slate-800 text-white px-6 py-3 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold">Translation Tool</h1>
+          <h1 className="text-xl font-bold">T³ - Tanmay's Translation Tool</h1>
           <nav className="flex gap-2">
             <button
               onClick={() => setView('library')}
