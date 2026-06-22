@@ -34,7 +34,7 @@ function groupToLines(items) {
     if (!buckets[y]) buckets[y] = [];
     buckets[y].push(item);
   }
-  const sorted = Object.keys(buckets).map(Number).sort((a, b) => a - b);
+  const sorted = Object.keys(buckets).map(Number).sort((a, b) => b - a);
   const lines = [];
   for (const y of sorted) {
     const row = buckets[y].sort((a, b) => a.transform[4] - b.transform[4]);
