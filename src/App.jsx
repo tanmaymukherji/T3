@@ -118,6 +118,7 @@ export default function App() {
         throw new Error('Invalid project data');
       }
 
+      await new Promise(r => setTimeout(r, 0));
       await loadProjects();
       setActiveProject(project);
       setEditorTab(result.isDocx ? 'translate' : 'ocr');

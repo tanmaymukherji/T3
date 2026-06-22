@@ -127,6 +127,10 @@ function buildTableBlock(lines, region) {
   return rows;
 }
 
+function yieldFrame() {
+  return new Promise(resolve => requestAnimationFrame(resolve));
+}
+
 export async function extractTextParagraphs(pdfDoc) {
   const allLines = [];
   for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -136,6 +140,7 @@ export async function extractTextParagraphs(pdfDoc) {
     for (const l of lines) l.page = i;
     allLines.push(...lines);
     page.cleanup();
+    await yieldFrame();
   }
 
   const tableRegions = detectTableRegions(allLines);

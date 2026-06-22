@@ -17,6 +17,8 @@ export default function FolderImporter({ onImport, disabled }) {
   const fileInputRef = useRef(null);
 
   const processFiles = async (files, folderName) => {
+    console.time('processFiles');
+    console.log('processFiles started with', files.length, 'files');
     setBusy(true);
     setProgress('Scanning files...');
     try {
@@ -45,38 +47,26 @@ export default function FolderImporter({ onImport, disabled }) {
       // Process PDF files page by page, yielding between each
       const pdfResults = [];
       for (const pdfFile of pdfFiles) {
+        console.log('processing PDF:', pdfFile.name, 'size:', pdfFile.size);
         setProgress(`Loading PDF: ${pdfFile.name}...`);
         await sleep(50);
 
         const buf = await pdfFile.arrayBuffer();
+        console.log('arrayBuffer loaded, size:', buf.byteLength);
         const pdfDoc = await pdfjsDocLoad(buf);
+        console.log('pdfDoc loaded, pages:', pdfDoc.numPages);
         const isText = await detectTextPdf(pdfDoc);
+        console.log('detectTextPdf result:', isText);
 
         if (isText) {
           setProgress(`Extracting text: ${pdfFile.name}...`);
           await yieldFrame();
+          console.time(`extract:${pdfFile.name}`);
           const paragraphs = await extractTextParagraphs(pdfDoc);
-          const pageImages = [];
-
-          for (let i = 1; i <= pdfDoc.numPages; i++) {
-            setProgress(`Saving preview ${i}/${pdfDoc.numPages}: ${pdfFile.name}...`);
-            await yieldFrame();
-            // Give browser a moment before starting the heavy render
-            await sleep(30);
-
-            const page = await pdfDoc.getPage(i);
-            // Low-res JPEG preview for text PDFs — fast to render and encode
-            const file = await renderPageToFile(page, 0.5, `page_${i}.jpg`, 'jpeg');
-            await writeImage(projectId, i, file);
-            pageImages.push({ page: i, filename: `page_${i}.jpg` });
-            page.cleanup();
-
-            // Let the browser breathe before the next page
-            await sleep(50);
-          }
-
-          pdfResults.push({ filename: pdfFile.name, type: 'text', paragraphs, images: pageImages, pages: pdfDoc.numPages });
+          console.timeEnd(`extract:${pdfFile.name}`);
           pdfDoc.loadingTask.destroy();
+
+          pdfResults.push({ filename: pdfFile.name, type: 'text', paragraphs, images: [], pages: pdfDoc.numPages });
         } else {
           const rendered = [];
           for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -113,6 +103,7 @@ export default function FolderImporter({ onImport, disabled }) {
 
       await yieldFrame();
 
+      console.time('merge');
       // Build merged arrays preserving original file order
       const allParagraphs = [];
       const allImages = [];
@@ -192,6 +183,7 @@ export default function FolderImporter({ onImport, disabled }) {
             }
           }
         }
+        await yieldFrame();
       }
 
       if (allParagraphs.length === 0) {
@@ -201,6 +193,8 @@ export default function FolderImporter({ onImport, disabled }) {
         return;
       }
 
+      console.timeEnd('merge');
+      await yieldFrame();
       const htmlContent = buildHtmlContent(allParagraphs);
 
       setProgress('Saving project...');
@@ -211,6 +205,7 @@ export default function FolderImporter({ onImport, disabled }) {
         return pr && pr.type === 'text';
       });
 
+      console.time('saveProject');
       const project = await saveProject({
         id: projectId,
         name,
@@ -221,8 +216,10 @@ export default function FolderImporter({ onImport, disabled }) {
         images: allImages,
         isDocx: !!onlyTextPdfs,
       });
+      console.timeEnd('saveProject');
 
       onImport(project);
+      console.timeEnd('processFiles');
     } catch (err) {
       console.error('Import failed:', err);
       alert('Import failed: ' + err.message);
@@ -238,17 +235,22 @@ export default function FolderImporter({ onImport, disabled }) {
   }
 
   const handleFolderSelect = async () => {
+    console.log('handleFolderSelect started');
     try {
       const handle = await window.showDirectoryPicker();
+      console.log('picker returned, handle:', handle.name);
       const files = [];
       for await (const entry of handle.values()) {
         if (entry.kind === 'file' && /\.(png|jpe?g|tiff?|pdf)$/i.test(entry.name)) {
+          if (/\.pdf$/i.test(entry.name)) console.log('reading PDF:', entry.name);
           const file = await entry.getFile();
           Object.defineProperty(file, 'name', { value: entry.name });
           files.push(file);
         }
       }
+      console.log('files collected:', files.length);
       files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      console.log('calling processFiles');
       await processFiles(files, handle.name);
     } catch (err) {
       if (err.name === 'AbortError' || err.name === 'SecurityError') return;
