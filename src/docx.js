@@ -1,10 +1,32 @@
-import { Document, Paragraph, TextRun, Packer, PageBreak } from 'docx';
+import { Document, Paragraph, TextRun, Packer, Table, TableRow, TableCell, TableBorders, BorderStyle, WidthType } from 'docx';
 import { saveAs } from 'file-saver';
 
-function buildParagraphs(items, pageBreaks) {
+const border = { style: BorderStyle.SINGLE, size: 1, color: '999999' };
+const tableBorders = new TableBorders({
+  top: border, bottom: border, left: border, right: border,
+  insideHorizontal: border, insideVertical: border,
+});
+
+function buildParagraphs(items) {
   const children = [];
   for (let i = 0; i < items.length; i++) {
-    const { text, isPageStart } = items[i];
+    const { text, isPageStart, type, rows } = items[i];
+
+    if (type === 'table' && rows && rows.length > 0) {
+      const tableRows = rows.map((row) =>
+        new TableRow({
+          children: (row || []).map((cellText) =>
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: cellText || '', size: 20, font: 'Calibri' })] })],
+              width: { size: 100 / (row.length || 1), type: WidthType.PERCENTAGE },
+            })
+          ),
+        })
+      );
+      children.push(new Table({ rows: tableRows, borders: tableBorders }));
+      continue;
+    }
+
     const runs = [];
     const lines = text.split('\n');
     for (let li = 0; li < lines.length; li++) {
@@ -33,6 +55,17 @@ export async function generateDocxBlob(paragraphs) {
   let lastPage = null;
   for (const p of paragraphs) {
     const text = (p.translated !== undefined ? p.translated : p.text || '').replace(/<[^>]+>/g, '').trim();
+
+    if (p.type === 'table') {
+      const rows = p.rows || text.split('\n').map(l => l.split('\t'));
+      const translatedRows = p.translated !== undefined
+        ? p.translated.split('\n').map(l => l.split('\t'))
+        : rows;
+      items.push({ type: 'table', rows: translatedRows, isPageStart: lastPage !== null && p.page !== lastPage });
+      lastPage = p.page;
+      continue;
+    }
+
     if (!text) continue;
     items.push({ text, isPageStart: lastPage !== null && p.page !== lastPage });
     lastPage = p.page;

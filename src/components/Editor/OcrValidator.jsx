@@ -226,13 +226,31 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
     setEdited((prev) => ({ ...prev, [index]: newText }));
   };
 
+  const updateTableCell = (paraIndex, edited, ri, ci, val) => {
+    const raw = edited[paraIndex] !== undefined ? edited[paraIndex] : '';
+    const rows = raw ? raw.split('\n').map(l => l.split('\t')) : [];
+    if (rows[ri]) rows[ri][ci] = val;
+    const joined = rows.map(r => r.join('\t')).join('\n');
+    setEdited((prev) => ({ ...prev, [paraIndex]: joined }));
+  };
+
+  const getTableRows = (para) => {
+    const raw = edited[para.index] !== undefined ? edited[para.index] : (para.text || '');
+    return raw.split('\n').map(l => l.split('\t'));
+  };
+
   const getText = (para) => edited[para.index] !== undefined ? edited[para.index] : para.text;
 
   const handleSave = () => {
-    const updated = paragraphs.map((p) => ({
-      ...p,
-      text: edited[p.index] !== undefined ? edited[p.index] : p.text,
-    }));
+    const updated = paragraphs.map((p) => {
+      const entry = { ...p, text: edited[p.index] !== undefined ? edited[p.index] : p.text };
+      if (p.type === 'table' && edited[p.index] !== undefined) {
+        const rows = entry.text.split('\n').map(l => l.split('\t'));
+        entry.rows = rows;
+        entry.colCount = rows[0]?.length || 0;
+      }
+      return entry;
+    });
     onSaveParagraphs(updated);
     setEdited({});
   };
@@ -300,11 +318,12 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
               const rows = Math.max(2, text.split('\n').length, Math.ceil(text.length / 60));
               const isEdited = edited[p.index] !== undefined && edited[p.index] !== p.text;
               if (!textareaRefs.current[p.index]) textareaRefs.current[p.index] = React.createRef();
+              const isTable = p.type === 'table';
               return (
                 <div key={p.index} className="mb-3">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <SuggestionButton textareaRef={textareaRefs.current[p.index]} />
-                    <ReScanButton
+                    {!isTable && <SuggestionButton textareaRef={textareaRefs.current[p.index]} />}
+                    {!isTable && <ReScanButton
                       textareaRef={textareaRefs.current[p.index]}
                       imageData={pageImage?.data}
                       lines={p.lines}
@@ -312,21 +331,45 @@ export default function OcrValidator({ images, paragraphs, onSaveParagraphs }) {
                       paraIndex={idx}
                       totalParas={pageParagraphs.length}
                       disabled={p.source === 'pdf_text'}
-                    />
-                    <span className="text-[11px] text-gray-400 font-mono">¶{p.index + 1}</span>
+                    />}
+                    <span className="text-[11px] text-gray-400 font-mono">{isTable ? '⊞' : '¶'}{p.index + 1}</span>
+                    {isTable && <span className="text-[10px] text-indigo-500 font-medium">Table</span>}
                     {isEdited && <span className="text-[11px] text-amber-600 font-medium">edited</span>}
                   </div>
-                  <SmartTextarea
-                    ref={textareaRefs.current[p.index]}
-                    value={text}
-                    onChange={(newText) => updateText(p.index, newText)}
-                    className={`w-full p-3 rounded border text-sm resize-y min-h-[3.5rem] font-sans leading-relaxed whitespace-pre-wrap focus:outline-none ${
-                      isEdited
-                        ? 'bg-amber-50 border-amber-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
-                        : 'bg-white border-gray-300 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400'
-                    }`}
-                    rows={rows}
-                  />
+                  {isTable ? (
+                    <div className="overflow-x-auto bg-white border border-gray-300 rounded">
+                      <table className="w-full border-collapse border border-gray-400 text-sm">
+                        <tbody>
+                          {getTableRows(p).map((row, ri) => (
+                            <tr key={ri}>
+                              {row.map((cell, ci) => (
+                                <td key={ci} className="border border-gray-400 p-1 min-w-[60px] align-top">
+                                  <textarea
+                                    value={cell}
+                                    onChange={(e) => updateTableCell(p.index, edited, ri, ci, e.target.value)}
+                                    className="w-full bg-transparent resize-none outline-none border-none p-0 m-0 text-sm font-sans leading-snug"
+                                    rows={Math.max(1, (cell || '').split('\n').length)}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <SmartTextarea
+                      ref={textareaRefs.current[p.index]}
+                      value={text}
+                      onChange={(newText) => updateText(p.index, newText)}
+                      className={`w-full p-3 rounded border text-sm resize-y min-h-[3.5rem] font-sans leading-relaxed whitespace-pre-wrap focus:outline-none ${
+                        isEdited
+                          ? 'bg-amber-50 border-amber-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
+                          : 'bg-white border-gray-300 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400'
+                      }`}
+                      rows={rows}
+                    />
+                  )}
                 </div>
               );
             })

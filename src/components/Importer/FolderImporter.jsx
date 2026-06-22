@@ -108,14 +108,20 @@ export default function FolderImporter({ onImport, disabled }) {
               allImages.push({ page: pageOffset + img.page, filename: img.filename, data: img.data });
             }
             for (const para of pr.paragraphs) {
-              allParagraphs.push({
+              const entry = {
                 id: `para_${paragraphIndex}`,
                 index: paragraphIndex,
                 page: pageOffset + (para.page || 1),
                 filename: file.name,
                 text: para.text,
                 source: 'pdf_text',
-              });
+              };
+              if (para.type === 'table') {
+                entry.type = 'table';
+                entry.rows = para.rows;
+                entry.colCount = para.rows && para.rows.length > 0 ? para.rows[0].length : 0;
+              }
+              allParagraphs.push(entry);
               paragraphIndex++;
             }
           } else {

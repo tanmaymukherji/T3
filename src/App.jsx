@@ -74,7 +74,15 @@ export default function App() {
 
       if (typeof result === 'object' && result.paragraphs && Array.isArray(result.paragraphs)) {
         const htmlContent = result.paragraphs
-          .map((p) => `<p data-page="${p.page}" data-filename="${p.filename || ''}"${p.source ? ` data-source="${p.source}"` : ''}>${p.text}</p>`)
+          .map((p) => {
+            if (p.type === 'table' && p.rows && p.rows.length > 0) {
+              const rowsHtml = p.rows.map(r =>
+                '<tr>' + r.map(c => '<td>' + (c || '') + '</td>').join('') + '</tr>'
+              ).join('');
+              return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table">${rowsHtml}</table>`;
+            }
+            return `<p data-page="${p.page}" data-filename="${p.filename || ''}"${p.source ? ` data-source="${p.source}"` : ''}>${p.text}</p>`;
+          })
           .join('\n');
 
         project = await saveProject({
@@ -131,7 +139,15 @@ export default function App() {
     setLoading(true);
     try {
       const htmlContent = updatedParagraphs
-        .map((p) => `<p data-page="${p.page}" data-filename="${p.filename || ''}">${p.text}</p>`)
+        .map((p) => {
+          if (p.type === 'table' && p.rows && p.rows.length > 0) {
+            const rowsHtml = p.rows.map(r =>
+              '<tr>' + r.map(c => '<td>' + (c || '') + '</td>').join('') + '</tr>'
+            ).join('');
+            return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table">${rowsHtml}</table>`;
+          }
+          return `<p data-page="${p.page}" data-filename="${p.filename || ''}">${p.text}</p>`;
+        })
         .join('\n');
       const updated = await saveProject({
         ...activeProject,

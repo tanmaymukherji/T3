@@ -80,14 +80,22 @@ export default function DocxImporter({ onImport, disabled }) {
         alert('No text could be extracted from the PDF.');
         return;
       }
-      const allParagraphs = paragraphs.map((p, i) => ({
-        id: `para_${i}`,
-        index: i,
-        page: p.page || 1,
-        filename: file.name,
-        text: p.text,
-        source: 'pdf_text',
-      }));
+      const allParagraphs = paragraphs.map((p, i) => {
+        const entry = {
+          id: `para_${i}`,
+          index: i,
+          page: p.page || 1,
+          filename: file.name,
+          text: p.text,
+          source: 'pdf_text',
+        };
+        if (p.type === 'table') {
+          entry.type = 'table';
+          entry.rows = p.rows;
+          entry.colCount = p.rows && p.rows.length > 0 ? p.rows[0].length : 0;
+        }
+        return entry;
+      });
       onImport({
         name,
         folder: file.name,

@@ -10,37 +10,72 @@ function parseParagraphs(project) {
   const div = document.createElement('div');
   div.innerHTML = html;
   const paraElements = div.querySelectorAll('p');
+  const tableElements = div.querySelectorAll('table');
   const result = [];
   let index = 0;
 
-  if (paraElements.length > 0) {
-    paraElements.forEach((p) => {
-      const text = p.innerText.trim();
-      if (text) {
-        result.push({
-          id: `p_${index}`,
-          index,
-          page: parseInt(p.getAttribute('data-page'), 10) || 1,
-          filename: p.getAttribute('data-filename') || '',
-          source: p.getAttribute('data-source') || undefined,
-          text,
+  if (paraElements.length > 0 || tableElements.length > 0) {
+    // Merge all elements in document order
+    const allEls = Array.from(div.body?.childNodes || div.childNodes).filter(
+      n => n.nodeType === 1 && (n.tagName === 'P' || n.tagName === 'TABLE')
+    );
+    for (const el of allEls) {
+      if (el.tagName === 'P') {
+        const text = el.innerText.trim();
+        if (text) {
+          result.push({
+            id: `p_${index}`,
+            index,
+            page: parseInt(el.getAttribute('data-page'), 10) || 1,
+            filename: el.getAttribute('data-filename') || '',
+            source: el.getAttribute('data-source') || undefined,
+            text,
+          });
+          index++;
+        }
+      } else if (el.tagName === 'TABLE') {
+        const rows = [];
+        el.querySelectorAll('tr').forEach(tr => {
+          const cells = [];
+          tr.querySelectorAll('td').forEach(td => cells.push(td.innerText.trim()));
+          rows.push(cells);
         });
-        index++;
+        if (rows.length > 0) {
+          const tableText = rows.map(r => r.join('\t')).join('\n');
+          result.push({
+            id: `p_${index}`,
+            index,
+            page: parseInt(el.getAttribute('data-page'), 10) || 1,
+            filename: el.getAttribute('data-filename') || '',
+            source: 'pdf_text',
+            type: 'table',
+            rows,
+            colCount: rows[0]?.length || 0,
+            text: tableText,
+          });
+          index++;
+        }
       }
-    });
+    }
   }
 
   const paraField = project?.paragraphsArray || project?.paragraphs;
   if (result.length === 0 && Array.isArray(paraField) && paraField.length > 0) {
     for (const p of paraField) {
-        result.push({
-          id: p.id || `p_${index}`,
-          index,
-          page: p.page || 1,
-          filename: p.filename || '',
-          source: p.source || undefined,
-          text: p.text,
-        });
+      const entry = {
+        id: p.id || `p_${index}`,
+        index,
+        page: p.page || 1,
+        filename: p.filename || '',
+        source: p.source || undefined,
+        text: p.text,
+      };
+      if (p.type === 'table' && p.rows && p.rows.length > 0) {
+        entry.type = 'table';
+        entry.rows = p.rows.map(r => [...r]);
+        entry.colCount = p.colCount || p.rows[0].length;
+      }
+      result.push(entry);
       index++;
     }
   }
@@ -57,6 +92,46 @@ function parseParagraphs(project) {
   }
 
   return result;
+}
+
+function getTableRows(para, originals) {
+  const raw = originals && originals[para.index] !== undefined ? originals[para.index] : (para.text || '');
+  return raw.split('\n').map(l => l.split('\t'));
+}
+
+function getTranslatedTableRows(para, translations) {
+  const raw = translations && translations[para.index] !== undefined ? translations[para.index] : '';
+  if (!raw) return para.rows || getTableRows(para, null);
+  return raw.split('\n').map(l => l.split('\t'));
+}
+
+function TableGroup({ rows, onCellChange, readOnly, className }) {
+  return (
+    <div className={className + ' overflow-x-auto'}>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri}>
+              {row.map((cell, ci) => (
+                <td key={ci} className="border border-gray-400 p-1 min-w-[60px] align-top">
+                  {readOnly ? (
+                    <span className="block whitespace-pre-wrap min-h-[1.2em]">{cell}</span>
+                  ) : (
+                    <textarea
+                      value={cell}
+                      onChange={(e) => onCellChange(ri, ci, e.target.value)}
+                      className="w-full bg-transparent resize-none outline-none border-none p-0 m-0 text-sm font-sans leading-snug"
+                      rows={Math.max(1, (cell || '').split('\n').length)}
+                    />
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function PageGroup({ pageNum, paragraphs, originals, translations, translatingIndex, onTextChange, onTranslate, onKeepOriginal, imageData, linesByIndex }) {
@@ -82,29 +157,45 @@ function PageGroup({ pageNum, paragraphs, originals, translations, translatingIn
         const rows = Math.max(2, text.split('\n').length, Math.ceil(text.length / 55));
         if (!textareaRefs.current[p.index]) textareaRefs.current[p.index] = createRef();
         const translated = translations && translations[p.index] !== undefined;
+        const isTable = p.type === 'table';
         return (
           <div key={p.id || p.index} data-para-index={p.index} className="mb-2 ml-2">
             <div className="flex items-center gap-2 mb-0.5">
-              <SuggestionButton textareaRef={textareaRefs.current[p.index]} />
-              <ReScanButton
+              {!isTable && <SuggestionButton textareaRef={textareaRefs.current[p.index]} />}
+              {!isTable && <ReScanButton
                 textareaRef={textareaRefs.current[p.index]}
                 imageData={imageData}
                 lines={linesByIndex[p.index]}
                 paraIndex={idx}
                 totalParas={paragraphs.length}
                 disabled={p.source === 'pdf_text'}
-              />
-              <span className="text-[11px] text-gray-400 font-mono">¶{p.index + 1}</span>
+              />}
+              <span className="text-[11px] text-gray-400 font-mono">{isTable ? '⊞' : '¶'}{p.index + 1}</span>
               <span className="text-[11px] text-gray-400">p.{pageNum}</span>
+              {isTable && <span className="text-[10px] text-indigo-500 font-medium">Table</span>}
               {translated && <span className="text-[10px] text-amber-600 font-medium">✓ Translated</span>}
             </div>
-            <SmartTextarea
-              ref={textareaRefs.current[p.index]}
-              value={text}
-              onChange={(newText) => onTextChange(p.index, newText)}
-              className={`w-full p-3 border text-sm resize-y min-h-[3.5rem] font-sans leading-relaxed whitespace-pre-wrap rounded ${translated ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'} focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400`}
-              rows={rows}
-            />
+            {isTable ? (
+              <TableGroup
+                rows={getTableRows(p, originals)}
+                onCellChange={(ri, ci, val) => {
+                  const r = getTableRows(p, originals);
+                  r[ri][ci] = val;
+                  const joined = r.map(row => row.join('\t')).join('\n');
+                  onTextChange(p.index, joined);
+                }}
+                readOnly={false}
+                className="bg-white border border-gray-300 rounded"
+              />
+            ) : (
+              <SmartTextarea
+                ref={textareaRefs.current[p.index]}
+                value={text}
+                onChange={(newText) => onTextChange(p.index, newText)}
+                className={`w-full p-3 border text-sm resize-y min-h-[3.5rem] font-sans leading-relaxed whitespace-pre-wrap rounded ${translated ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'} focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400`}
+                rows={rows}
+              />
+            )}
             <div className="mt-1 flex gap-1">
               <button
                 onClick={() => onTranslate(p)}
@@ -152,27 +243,43 @@ function TranslationPageGroup({ pageNum, paragraphs, translations, onTextChange,
         if (t === undefined) return null;
         const rows = Math.max(2, t.split('\n').length, Math.ceil(t.length / 55));
         if (!textareaRefs.current[p.index]) textareaRefs.current[p.index] = createRef();
+        const isTable = p.type === 'table';
         return (
           <div key={p.id || p.index} data-para-index={p.index} className="mb-2 ml-2">
             <div className="flex items-center gap-2 mb-0.5">
-              <SuggestionButton textareaRef={textareaRefs.current[p.index]} />
-              <ReScanButton
+              {!isTable && <SuggestionButton textareaRef={textareaRefs.current[p.index]} />}
+              {!isTable && <ReScanButton
                 textareaRef={textareaRefs.current[p.index]}
                 imageData={imageData}
                 lines={linesByIndex[p.index]}
                 paraIndex={idx}
                 totalParas={paraList.length}
                 disabled={p.source === 'pdf_text'}
-              />
-              <span className="text-[11px] text-gray-400 font-mono">¶{p.index + 1}</span>
+              />}
+              <span className="text-[11px] text-gray-400 font-mono">{isTable ? '⊞' : '¶'}{p.index + 1}</span>
+              {isTable && <span className="text-[10px] text-green-500 font-medium">Table</span>}
             </div>
-            <SmartTextarea
-              ref={textareaRefs.current[p.index]}
-              value={t}
-              onChange={(newText) => onTextChange(p.index, newText)}
-              className="w-full p-3 bg-white rounded border border-green-200 focus:border-green-400 focus:ring-1 focus:ring-green-400 text-sm resize-y min-h-[3.5rem] font-sans leading-relaxed whitespace-pre-wrap"
-              rows={rows}
-            />
+            {isTable ? (
+              <TableGroup
+                rows={getTranslatedTableRows(p, translations)}
+                readOnly={false}
+                onCellChange={(ri, ci, val) => {
+                  const r = getTranslatedTableRows(p, translations);
+                  r[ri][ci] = val;
+                  const joined = r.map(row => row.join('\t')).join('\n');
+                  onTextChange(p.index, joined);
+                }}
+                className="bg-white border border-green-200 rounded"
+              />
+            ) : (
+              <SmartTextarea
+                ref={textareaRefs.current[p.index]}
+                value={t}
+                onChange={(newText) => onTextChange(p.index, newText)}
+                className="w-full p-3 bg-white rounded border border-green-200 focus:border-green-400 focus:ring-1 focus:ring-green-400 text-sm resize-y min-h-[3.5rem] font-sans leading-relaxed whitespace-pre-wrap"
+                rows={rows}
+              />
+            )}
           </div>
         );
       })}
@@ -359,6 +466,9 @@ export default function SplitPaneEditor({ project, images, paragraphs: origParag
         page: p.page,
         text: originals[p.index] !== undefined ? originals[p.index] : p.text,
         translated: translations[p.index],
+        type: p.type,
+        rows: p.type === 'table' ? (p.rows || getTableRows(p, originals)) : undefined,
+        colCount: p.colCount,
       }));
     try {
       const filename = `${project.name || 'translation'}_${targetLang}.docx`;
@@ -396,9 +506,15 @@ export default function SplitPaneEditor({ project, images, paragraphs: origParag
         remapped[newIdx] = translations[p.index];
       }
     }
-    const html = kept.map((p) =>
-      `<p data-page="${p.page}" data-filename="${p.filename || ''}"${p.source ? ` data-source="${p.source}"` : ''}>${p.text}</p>`
-    ).join('\n');
+    const html = kept.map((p) => {
+      if (p.type === 'table' && p.rows && p.rows.length > 0) {
+        const rowsHtml = p.rows.map(r =>
+          '<tr>' + r.map(c => '<td>' + (c || '') + '</td>').join('') + '</tr>'
+        ).join('');
+        return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table">${rowsHtml}</table>`;
+      }
+      return `<p data-page="${p.page}" data-filename="${p.filename || ''}"${p.source ? ` data-source="${p.source}"` : ''}>${p.text}</p>`;
+    }).join('\n');
     onSave(html, { translations: remapped });
   };
 
