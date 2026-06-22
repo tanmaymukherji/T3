@@ -62,7 +62,7 @@ export default function FolderImporter({ onImport, disabled }) {
           }
           pdfResults.push({ filename: pdfFile.name, type: 'scanned', ocrResults: ocr, images: pageImages, pages: pdfDoc.numPages });
         }
-        pdfDoc.destroy();
+        pdfDoc.loadingTask.destroy();
       }
 
       // Build merged arrays preserving original file order

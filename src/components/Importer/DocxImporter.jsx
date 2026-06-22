@@ -75,7 +75,7 @@ export default function DocxImporter({ onImport, disabled }) {
     if (isText) {
       const paragraphs = await extractTextParagraphs(doc);
       const name = file.name.replace(/\.pdf$/i, '') || 'Untitled Document';
-      doc.destroy();
+        doc.loadingTask.destroy();
       if (paragraphs.length === 0) {
         alert('No text could be extracted from the PDF.');
         return;
@@ -104,7 +104,7 @@ export default function DocxImporter({ onImport, disabled }) {
         rendered.push(f);
         page.cleanup();
       }
-      doc.destroy();
+        doc.loadingTask.destroy();
 
       if (rendered.length === 0) {
         alert('Could not render PDF pages.');
