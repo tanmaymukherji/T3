@@ -99,6 +99,15 @@ export function buildHtmlContent(paragraphs) {
 
 export async function initializeStorage() {
   try {
+    // Check browser support
+    if (!('showDirectoryPicker' in window)) {
+      throw new Error('Your browser does not support the File System Access API. Please use a recent version of Chrome or Edge on desktop.');
+    }
+    // Check secure context
+    if (!window.isSecureContext) {
+      throw new Error('A secure context (HTTPS or localhost) is required. The app is currently running over an insecure connection.');
+    }
+
     _baseDirHandle = await _getBaseDir();
     _projectsDirHandle = await _getProjectsDir();
     await clearOldData();
@@ -106,8 +115,15 @@ export async function initializeStorage() {
   } catch (err) {
     if (err.name === 'AbortError') throw err;
     console.error('Storage initialization failed:', err);
-    throw new Error('Storage permission denied. Please allow access to use this application.');
+    throw new Error(err.message || 'Storage permission denied. Please allow access to use this application.');
   }
+}
+
+export async function retryInitialization() {
+  // Reset cached handles so a fresh attempt is made
+  _baseDirHandle = null;
+  _projectsDirHandle = null;
+  return initializeStorage();
 }
 
 export async function listProjects() {

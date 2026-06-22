@@ -6,7 +6,7 @@ import FolderImporter from './components/Importer/FolderImporter';
 import DocxImporter from './components/Importer/DocxImporter';
 import SettingsPanel from './components/SettingsPanel';
 import ErrorBanner from './components/ErrorBanner';
-import { initializeStorage, listProjects, saveProject, deleteProject } from './storage';
+import { initializeStorage, retryInitialization, listProjects, saveProject, deleteProject } from './storage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -55,21 +55,24 @@ export default function App() {
   const [editorTab, setEditorTab] = useState('ocr');
   const [showSettings, setShowSettings] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        await initializeStorage();
-        await loadProjects();
-        setAppReady(true);
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          setAppError('Folder selection was cancelled. Reload the page and allow access to the working directory to use this application.');
-        } else {
-          setAppError(err.message || 'Failed to initialize storage');
-        }
+  const doInitialize = useCallback(async () => {
+    try {
+      setAppError(null);
+      await retryInitialization();
+      await loadProjects();
+      setAppReady(true);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setAppError('Folder selection was cancelled. Please try again and select or create a working folder to continue.');
+      } else {
+        setAppError(err.message || 'Failed to initialize storage');
       }
-    })();
+    }
   }, []);
+
+  useEffect(() => {
+    doInitialize();
+  }, [doInitialize]);
 
   const loadProjects = async () => {
     try {
@@ -211,14 +214,22 @@ export default function App() {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
         <div className="bg-white p-8 rounded-lg shadow-xl max-w-md text-center">
-          <h2 className="text-lg font-bold text-red-700 mb-4">Storage Error</h2>
-          <p className="text-sm text-gray-600 mb-6">{appError}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-          >
-            Reload & Try Again
-          </button>
+          <h2 className="text-lg font-bold text-red-700 mb-4">Storage Required</h2>
+          <p className="text-sm text-gray-600 mb-6 whitespace-pre-wrap">{appError}</p>
+          <div className="flex flex-col gap-3 items-center">
+            <button
+              onClick={doInitialize}
+              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+            >
+              Select Working Folder
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="text-sm text-gray-500 hover:text-gray-700 underline"
+            >
+              Reload page
+            </button>
+          </div>
         </div>
       </div>
     );
