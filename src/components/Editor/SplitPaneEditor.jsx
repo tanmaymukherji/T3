@@ -28,6 +28,8 @@ function parseParagraphs(project) {
             page: parseInt(el.getAttribute('data-page'), 10) || 1,
             filename: el.getAttribute('data-filename') || '',
             source: el.getAttribute('data-source') || undefined,
+            sourceId: el.getAttribute('data-source-id') || undefined,
+            sourcePage: parseInt(el.getAttribute('data-source-page'), 10) || undefined,
             text,
           });
           index++;
@@ -46,7 +48,9 @@ function parseParagraphs(project) {
             index,
             page: parseInt(el.getAttribute('data-page'), 10) || 1,
             filename: el.getAttribute('data-filename') || '',
-            source: 'pdf_text',
+            source: el.getAttribute('data-source') || 'pdf_text',
+            sourceId: el.getAttribute('data-source-id') || undefined,
+            sourcePage: parseInt(el.getAttribute('data-source-page'), 10) || undefined,
             type: 'table',
             rows,
             colCount: rows[0]?.length || 0,
@@ -67,6 +71,8 @@ function parseParagraphs(project) {
         page: p.page || 1,
         filename: p.filename || '',
         source: p.source || undefined,
+        sourceId: p.sourceId || undefined,
+        sourcePage: p.sourcePage || undefined,
         text: p.text,
       };
       if (p.type === 'table' && p.rows && p.rows.length > 0) {
@@ -499,13 +505,16 @@ export default function SplitPaneEditor({ project, images, paragraphs: origParag
       }
     }
     const html = kept.map((p) => {
+      const sourceAttrs = `${p.source ? ` data-source="${p.source}"` : ''}` +
+        `${p.sourceId ? ` data-source-id="${p.sourceId}"` : ''}` +
+        `${p.sourcePage ? ` data-source-page="${p.sourcePage}"` : ''}`;
       if (p.type === 'table' && p.rows && p.rows.length > 0) {
         const rowsHtml = p.rows.map(r =>
           '<tr>' + r.map(c => '<td>' + (c || '') + '</td>').join('') + '</tr>'
         ).join('');
-        return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table">${rowsHtml}</table>`;
+        return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table"${sourceAttrs}>${rowsHtml}</table>`;
       }
-      return `<p data-page="${p.page}" data-filename="${p.filename || ''}"${p.source ? ` data-source="${p.source}"` : ''}>${p.text}</p>`;
+      return `<p data-page="${p.page}" data-filename="${p.filename || ''}"${sourceAttrs}>${p.text}</p>`;
     }).join('\n');
     onSave(html, { translations: remapped });
   };

@@ -87,13 +87,16 @@ async function _getProjectDir(projectId) {
 
 export function buildHtmlContent(paragraphs) {
   return paragraphs.map((p) => {
+    const sourceAttrs = `${p.source ? ` data-source="${p.source}"` : ''}` +
+      `${p.sourceId ? ` data-source-id="${p.sourceId}"` : ''}` +
+      `${p.sourcePage ? ` data-source-page="${p.sourcePage}"` : ''}`;
     if (p.type === 'table' && p.rows && p.rows.length > 0) {
       const rowsHtml = p.rows.map(r =>
         '<tr>' + r.map(c => '<td>' + (c || '') + '</td>').join('') + '</tr>'
       ).join('');
-      return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table">${rowsHtml}</table>`;
+      return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table"${sourceAttrs}>${rowsHtml}</table>`;
     }
-    return `<p data-page="${p.page}" data-filename="${p.filename || ''}"${p.source ? ` data-source="${p.source}"` : ''}>${p.text}</p>`;
+    return `<p data-page="${p.page}" data-filename="${p.filename || ''}"${sourceAttrs}>${p.text}</p>`;
   }).join('\n');
 }
 
@@ -183,6 +186,37 @@ export async function writeImage(projectId, pageNumber, blob) {
   const writable = await fileHandle.createWritable();
   await writable.write(blob);
   await writable.close();
+}
+
+function _safeSourceFilename(sourceIdOrFilename) {
+  const base = String(sourceIdOrFilename || 'source')
+    .replace(/\.pdf$/i, '')
+    .replace(/[^a-z0-9_-]+/gi, '_')
+    .replace(/^_+|_+$/g, '') || 'source';
+  return `${base}.pdf`;
+}
+
+export async function writeSourceDocument(projectId, sourceId, blob) {
+  const projectDir = await _getProjectDir(projectId);
+  const sourcesDir = await projectDir.getDirectoryHandle('sources', { create: true });
+  const storageName = _safeSourceFilename(sourceId);
+  const fileHandle = await sourcesDir.getFileHandle(storageName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+  return storageName;
+}
+
+export async function readSourceDocument(projectId, storageNameOrSourceId) {
+  try {
+    const projectDir = await _getProjectDir(projectId);
+    const sourcesDir = await projectDir.getDirectoryHandle('sources');
+    const storageName = _safeSourceFilename(storageNameOrSourceId);
+    const fileHandle = await sourcesDir.getFileHandle(storageName);
+    return await fileHandle.getFile();
+  } catch {
+    return null;
+  }
 }
 
 export async function readImage(projectId, pageNumber, ext) {

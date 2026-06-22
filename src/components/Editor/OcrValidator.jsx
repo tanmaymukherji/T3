@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import SmartTextarea from './SmartTextarea';
 import SuggestionButton, { ReScanButton } from './SuggestionButton';
-import { readImage } from '../../storage';
+import { readImage, readSourceDocument } from '../../storage';
 
 function ZoomableImage({ src, alt, focusBox }) {
   const containerRef = useRef(null);
@@ -198,7 +198,7 @@ function ZoomableImage({ src, alt, focusBox }) {
   );
 }
 
-export default function OcrValidator({ projectId, images, paragraphs, onSaveParagraphs }) {
+export default function OcrValidator({ projectId, images, sources = [], paragraphs, onSaveParagraphs }) {
   console.log('[OcrValidator] RENDER', {
     projectId,
     paragraphsCount: paragraphs?.length,
@@ -210,8 +210,19 @@ export default function OcrValidator({ projectId, images, paragraphs, onSavePara
   const [edited, setEdited] = useState({});
   const [focusBbox, setFocusBbox] = useState(null);
   const [imageUrl, setImageUrl] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const textareaRefs = useRef({});
   const imageUrlRef = useRef(null);
+  const pdfUrlRef = useRef(null);
+
+  const pageParagraphs = paragraphs.filter((p) => p.page === currentPage);
+  const sourceParagraph = pageParagraphs.find(p => p.sourceId) || null;
+  const pdfSource = sourceParagraph
+    ? sources.find(source => source.id === sourceParagraph.sourceId && source.type === 'pdf')
+    : null;
+  const showSelectablePdf = !!pdfSource && sourceParagraph?.source === 'pdf_text';
+  const sourcePage = sourceParagraph?.sourcePage || currentPage;
 
   // Load image when page changes
   useEffect(() => {
@@ -224,7 +235,8 @@ export default function OcrValidator({ projectId, images, paragraphs, onSavePara
       }
       setImageUrl(null);
 
-      if (!projectId || !currentPage) return;
+      if (!projectId || !currentPage || showSelectablePdf) return;
+      setPreviewLoading(true);
       const file = await readImage(projectId, currentPage);
       if (cancelled) return;
       if (file) {
@@ -232,9 +244,34 @@ export default function OcrValidator({ projectId, images, paragraphs, onSavePara
         imageUrlRef.current = url;
         setImageUrl(url);
       }
+      setPreviewLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [projectId, currentPage]);
+  }, [projectId, currentPage, showSelectablePdf]);
+
+  // Native PDF preview keeps text selectable and avoids raster snapshots.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (pdfUrlRef.current) {
+        URL.revokeObjectURL(pdfUrlRef.current);
+        pdfUrlRef.current = null;
+      }
+      setPdfUrl(null);
+
+      if (!projectId || !showSelectablePdf || !pdfSource) return;
+      setPreviewLoading(true);
+      const file = await readSourceDocument(projectId, pdfSource.storageName || pdfSource.id);
+      if (cancelled) return;
+      if (file) {
+        const url = URL.createObjectURL(file);
+        pdfUrlRef.current = url;
+        setPdfUrl(url);
+      }
+      setPreviewLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [projectId, showSelectablePdf, pdfSource?.id, pdfSource?.storageName]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -242,6 +279,10 @@ export default function OcrValidator({ projectId, images, paragraphs, onSavePara
       if (imageUrlRef.current) {
         URL.revokeObjectURL(imageUrlRef.current);
         imageUrlRef.current = null;
+      }
+      if (pdfUrlRef.current) {
+        URL.revokeObjectURL(pdfUrlRef.current);
+        pdfUrlRef.current = null;
       }
     };
   }, []);
@@ -252,9 +293,6 @@ export default function OcrValidator({ projectId, images, paragraphs, onSavePara
       setCurrentPage(pages[0]);
     }
   }, [pages]);
-
-  const pageParagraphs = paragraphs.filter((p) => p.page === currentPage);
-  const pageImage = images?.find((img) => img.page === currentPage);
 
   const updateText = (index, newText) => {
     setEdited((prev) => ({ ...prev, [index]: newText }));
@@ -341,13 +379,37 @@ export default function OcrValidator({ projectId, images, paragraphs, onSavePara
 
       {/* Split panes */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Image */}
+        {/* Left: selectable PDF for native text, image for OCR sources */}
         <div className="w-1/2 border-r border-gray-300">
-          {imageUrl ? (
+          {showSelectablePdf && pdfUrl ? (
+            <div className="h-full flex flex-col bg-gray-800">
+              <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 text-xs text-gray-300">
+                <span className="truncate" title={pdfSource.filename}>{pdfSource.filename} · page {sourcePage}</span>
+                <a
+                  href={`${pdfUrl}#page=${sourcePage}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-indigo-300 hover:text-indigo-200 ml-3 whitespace-nowrap"
+                >
+                  Open PDF
+                </a>
+              </div>
+              <iframe
+                key={`${pdfSource.id}-${sourcePage}`}
+                src={`${pdfUrl}#page=${sourcePage}&zoom=page-width`}
+                title={`${pdfSource.filename} page ${sourcePage}`}
+                className="flex-1 w-full bg-white border-0"
+              />
+            </div>
+          ) : imageUrl ? (
             <ZoomableImage src={imageUrl} alt={`Page ${currentPage}`} focusBox={focusBbox} />
           ) : (
             <div className="h-full flex items-center justify-center text-gray-400 text-sm bg-gray-800">
-              {projectId ? 'Loading image...' : 'No image available'}
+              {previewLoading
+                ? 'Loading source...'
+                : showSelectablePdf
+                  ? 'Original PDF is unavailable for this project.'
+                  : projectId ? 'No image available' : 'No source available'}
             </div>
           )}
         </div>

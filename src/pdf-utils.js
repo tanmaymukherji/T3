@@ -17,14 +17,29 @@ export async function initPdfJs() {
 
 export async function detectTextPdf(pdfDoc) {
   try {
-    const page = await pdfDoc.getPage(1);
-    const content = await page.getTextContent();
-    const chars = content.items.reduce((s, i) => s + (i.str || '').length, 0);
-    page.cleanup();
-    return chars >= 30;
+    const samplePages = Math.min(pdfDoc.numPages, 3);
+    for (let i = 1; i <= samplePages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const content = await page.getTextContent();
+      const usable = isTextContentUsable(content);
+      page.cleanup();
+      if (usable) return true;
+    }
+    return false;
   } catch {
     return false;
   }
+}
+
+export function countTextCharacters(content) {
+  return (content?.items || []).reduce(
+    (sum, item) => sum + String(item.str || '').replace(/\s/g, '').length,
+    0
+  );
+}
+
+export function isTextContentUsable(content, minimumCharacters = 8) {
+  return countTextCharacters(content) >= minimumCharacters;
 }
 
 function groupToLines(items) {
@@ -128,23 +143,14 @@ function buildTableBlock(lines, region) {
 }
 
 function yieldFrame() {
-  return new Promise(resolve => requestAnimationFrame(resolve));
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(resolve);
+    else setTimeout(resolve, 0);
+  });
 }
 
-export async function extractTextParagraphs(pdfDoc) {
-  const allLines = [];
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    const page = await pdfDoc.getPage(i);
-    const content = await page.getTextContent();
-    const lines = groupToLines(content.items);
-    for (const l of lines) l.page = i;
-    allLines.push(...lines);
-    page.cleanup();
-    await yieldFrame();
-  }
-
+function linesToParagraphs(allLines) {
   const tableRegions = detectTableRegions(allLines);
-
   // Build result: interleave paragraph and table blocks
   const result = [];
   let lastEnd = 0;
@@ -179,6 +185,32 @@ export async function extractTextParagraphs(pdfDoc) {
   return result;
 }
 
+export async function extractPageParagraphs(page, pageNumber, content = null) {
+  const pageContent = content || await page.getTextContent();
+  const lines = groupToLines(pageContent.items);
+  for (const line of lines) line.page = pageNumber;
+  return linesToParagraphs(lines);
+}
+
+export async function extractTextParagraphs(pdfDoc) {
+  const result = [];
+  for (let i = 1; i <= pdfDoc.numPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    const paragraphs = await extractPageParagraphs(page, i);
+    result.push(...paragraphs);
+    page.cleanup();
+    await yieldFrame();
+  }
+  return result;
+}
+
+export function getSafeRenderScale(page, preferredScale = 2, maxPixels = 5_000_000) {
+  const base = page.getViewport({ scale: 1 });
+  const preferredPixels = base.width * base.height * preferredScale * preferredScale;
+  if (preferredPixels <= maxPixels) return preferredScale;
+  return Math.max(1, Math.sqrt(maxPixels / (base.width * base.height)));
+}
+
 export async function renderPageToFile(page, scale, filename, format = 'png') {
   const vp = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
@@ -187,7 +219,15 @@ export async function renderPageToFile(page, scale, filename, format = 'png') {
   const ctx = canvas.getContext('2d');
   await page.render({ canvasContext: ctx, viewport: vp }).promise;
   const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(new File([blob], filename, { type: mime })), mime, format === 'jpeg' ? 0.85 : undefined);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      canvas.width = 0;
+      canvas.height = 0;
+      if (!blob) {
+        reject(new Error(`Could not encode rendered PDF page: ${filename}`));
+        return;
+      }
+      resolve(new File([blob], filename, { type: mime }));
+    }, mime, format === 'jpeg' ? 0.85 : undefined);
   });
 }

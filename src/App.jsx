@@ -6,7 +6,14 @@ import FolderImporter from './components/Importer/FolderImporter';
 import DocxImporter from './components/Importer/DocxImporter';
 import SettingsPanel from './components/SettingsPanel';
 import ErrorBanner from './components/ErrorBanner';
-import { initializeStorage, retryInitialization, listProjects, saveProject, deleteProject } from './storage';
+import { initializeStorage, retryInitialization, listProjects, saveProject, deleteProject, buildHtmlContent } from './storage';
+
+function preferredEditorTab(project) {
+  if (project?.documentKind === 'docx' || project?.needsValidation === false) return 'translate';
+  if (['pdf', 'mixed', 'images'].includes(project?.documentKind)) return 'ocr';
+  // Preserve routing for projects created before documentKind existed.
+  return project?.isDocx ? 'translate' : project?.images?.length ? 'ocr' : 'translate';
+}
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -90,17 +97,7 @@ export default function App() {
       let project;
 
       if (typeof result === 'object' && result.paragraphs && Array.isArray(result.paragraphs)) {
-        const htmlContent = result.paragraphs
-          .map((p) => {
-            if (p.type === 'table' && p.rows && p.rows.length > 0) {
-              const rowsHtml = p.rows.map(r =>
-                '<tr>' + r.map(c => '<td>' + (c || '') + '</td>').join('') + '</tr>'
-              ).join('');
-              return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table">${rowsHtml}</table>`;
-            }
-            return `<p data-page="${p.page}" data-filename="${p.filename || ''}"${p.source ? ` data-source="${p.source}"` : ''}>${p.text}</p>`;
-          })
-          .join('\n');
+        const htmlContent = buildHtmlContent(result.paragraphs);
 
         project = await saveProject({
           name: result.name || 'Untitled',
@@ -109,8 +106,11 @@ export default function App() {
           paragraphsArray: result.paragraphs,
           total_paragraphs: result.paragraphs.length,
           images: result.images || [],
+          sources: result.sources || [],
           fileHandle: result.fileHandle || null,
           isDocx: !!result.isDocx,
+          documentKind: result.documentKind,
+          needsValidation: result.needsValidation,
         });
       } else if (typeof result === 'object' && result.id) {
         project = result;
@@ -121,7 +121,7 @@ export default function App() {
       await new Promise(r => setTimeout(r, 0));
       await loadProjects();
       setActiveProject(project);
-      setEditorTab(result.isDocx ? 'translate' : 'ocr');
+      setEditorTab(preferredEditorTab(project));
       setView('editor');
     } catch (err) {
       setError(err.message || 'Failed to create project');
@@ -132,7 +132,7 @@ export default function App() {
 
   const handleSelectProject = (project) => {
     setActiveProject(project);
-    setEditorTab(project.isDocx ? 'translate' : project.images?.length ? 'ocr' : 'translate');
+    setEditorTab(preferredEditorTab(project));
     setView('editor');
   };
 
@@ -163,17 +163,7 @@ export default function App() {
     });
     setLoading(true);
     try {
-      const htmlContent = updatedParagraphs
-        .map((p) => {
-          if (p.type === 'table' && p.rows && p.rows.length > 0) {
-            const rowsHtml = p.rows.map(r =>
-              '<tr>' + r.map(c => '<td>' + (c || '') + '</td>').join('') + '</tr>'
-            ).join('');
-            return `<table data-page="${p.page}" data-filename="${p.filename || ''}" data-type="table">${rowsHtml}</table>`;
-          }
-          return `<p data-page="${p.page}" data-filename="${p.filename || ''}">${p.text}</p>`;
-        })
-        .join('\n');
+      const htmlContent = buildHtmlContent(updatedParagraphs);
       console.log('[handleSaveOcr] generated HTML length:', htmlContent.length, 'first 100:', htmlContent.substring(0, 100));
       const updated = await saveProject({
         ...activeProject,
@@ -320,6 +310,7 @@ export default function App() {
               <OcrValidator
                 projectId={activeProject.id}
                 images={activeProject.images || []}
+                sources={activeProject.sources || []}
                 paragraphs={activeProject.paragraphsArray || []}
                 onSaveParagraphs={handleSaveOcr}
               />
