@@ -38,8 +38,23 @@ function groupToLines(items) {
   const lines = [];
   for (const y of sorted) {
     const row = buckets[y].sort((a, b) => a.transform[4] - b.transform[4]);
-    const t = row.map(i => i.str).join(' ').replace(/\s+/g, ' ').trim();
-    if (t) lines.push({ text: t, y, fontSize: row[0]?.height || 12 });
+    const fontSize = row[0]?.height || 12;
+    let prevEnd = null;
+    let text = '';
+    for (const item of row) {
+      const x = item.transform[4];
+      const w = item.width || item.str.length * fontSize * 0.5;
+      if (prevEnd !== null && x - prevEnd > fontSize * 2) {
+        text += '\t' + item.str;
+      } else if (text) {
+        text += ' ' + item.str;
+      } else {
+        text = item.str;
+      }
+      prevEnd = x + w;
+    }
+    const t = text.trim();
+    if (t) lines.push({ text: t, y, fontSize });
   }
   return lines;
 }
