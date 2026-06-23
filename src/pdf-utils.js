@@ -93,12 +93,13 @@ function detectTableRegions(lines) {
     // Start of potential table
     const start = i;
     const expectedColCount = colCounts[i];
-    while (i < lines.length && colCounts[i] === expectedColCount &&
-           lines[i].cols && lines[i].cols.length === expectedColCount) {
+    let end = start;
+    while (end < lines.length && colCounts[end] === expectedColCount &&
+           lines[end].cols && lines[end].cols.length === expectedColCount) {
       // Check column X-positions are consistent
-      if (i > start) {
-        const prev = lines[i - 1].cols;
-        const cur = lines[i].cols;
+      if (end > start) {
+        const prev = lines[end - 1].cols;
+        const cur = lines[end].cols;
         let match = true;
         for (let c = 0; c < expectedColCount; c++) {
           const xDiff = prev[c] ? Math.abs(prev[c].x - cur[c].x) : 0;
@@ -106,11 +107,14 @@ function detectTableRegions(lines) {
         }
         if (!match) break;
       }
-      i++;
+      end++;
     }
-    if (i - start >= 3) {
-      regions.push({ start, end: i, colCount: expectedColCount });
+    if (end - start >= 3) {
+      regions.push({ start, end, colCount: expectedColCount });
     }
+    // Always make progress, including malformed/tab-bearing text items whose
+    // computed tab count does not match the geometric column count.
+    i = Math.max(end, start + 1);
   }
   return regions;
 }
