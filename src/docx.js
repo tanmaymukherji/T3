@@ -1,5 +1,7 @@
-import { Document, Paragraph, TextRun, Packer, Table, TableRow, TableCell, TableBorders, BorderStyle, WidthType } from 'docx';
-import { saveAs } from 'file-saver';
+import { Document, Paragraph, TextRun, Packer, Table, TableRow, TableCell, TableBorders, BorderStyle, WidthType, TableLayoutType } from 'docx';
+import fileSaver from 'file-saver';
+
+const { saveAs } = fileSaver;
 
 const border = { style: BorderStyle.SINGLE, size: 1, color: '999999' };
 const tableBorders = new TableBorders({
@@ -7,23 +9,70 @@ const tableBorders = new TableBorders({
   insideHorizontal: border, insideVertical: border,
 });
 
+const USABLE_PAGE_WIDTH = 9360;
+
+function normalizedTableRows(rows) {
+  const colCount = Math.max(1, ...rows.map((row) => row?.length || 0));
+  return rows.map((row) => Array.from({ length: colCount }, (_, index) => String(row?.[index] ?? '')));
+}
+
+function computeColumnWidths(rows) {
+  const colCount = rows[0]?.length || 1;
+  const weights = Array.from({ length: colCount }, (_, column) => {
+    const longest = Math.max(1, ...rows.map((row) => Math.min(60, (row[column] || '').length)));
+    return Math.max(8, longest);
+  });
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  const minimum = Math.min(1100, Math.floor(USABLE_PAGE_WIDTH / colCount));
+  let widths = weights.map((weight) => Math.max(minimum, Math.round(USABLE_PAGE_WIDTH * weight / total)));
+  const widthTotal = widths.reduce((sum, width) => sum + width, 0);
+  widths = widths.map((width) => Math.floor(width * USABLE_PAGE_WIDTH / widthTotal));
+  widths[widths.length - 1] += USABLE_PAGE_WIDTH - widths.reduce((sum, width) => sum + width, 0);
+  return widths;
+}
+
+function cellParagraph(text, isHeader) {
+  const lines = String(text || '').split('\n');
+  const children = [];
+  lines.forEach((line, index) => {
+    if (index > 0) children.push(new TextRun({ break: 1 }));
+    children.push(new TextRun({ text: line, size: 20, font: 'Calibri', bold: isHeader }));
+  });
+  return new Paragraph({ spacing: { after: 0, line: 260 }, children });
+}
+
 function buildParagraphs(items) {
   const children = [];
   for (let i = 0; i < items.length; i++) {
     const { text, isPageStart, type, rows } = items[i];
 
     if (type === 'table' && rows && rows.length > 0) {
-      const tableRows = rows.map((row) =>
+      const normalizedRows = normalizedTableRows(rows);
+      const columnWidths = computeColumnWidths(normalizedRows);
+      if (isPageStart && children.length > 0) {
+        children.push(new Paragraph({ pageBreakBefore: true }));
+      }
+      const tableRows = normalizedRows.map((row, rowIndex) =>
         new TableRow({
-          children: (row || []).map((cellText) =>
+          tableHeader: rowIndex === 0,
+          cantSplit: true,
+          children: row.map((cellText, columnIndex) =>
             new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: cellText || '', size: 20, font: 'Calibri' })] })],
-              width: { size: 100 / (row.length || 1), type: WidthType.PERCENTAGE },
+              children: [cellParagraph(cellText, rowIndex === 0)],
+              width: { size: columnWidths[columnIndex], type: WidthType.DXA },
+              margins: { top: 90, bottom: 90, left: 110, right: 110 },
+              shading: rowIndex === 0 ? { fill: 'EAF0F7' } : undefined,
             })
           ),
         })
       );
-      children.push(new Table({ rows: tableRows, borders: tableBorders }));
+      children.push(new Table({
+        rows: tableRows,
+        borders: tableBorders,
+        width: { size: USABLE_PAGE_WIDTH, type: WidthType.DXA },
+        columnWidths,
+        layout: TableLayoutType.FIXED,
+      }));
       continue;
     }
 

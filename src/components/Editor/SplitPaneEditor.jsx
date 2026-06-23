@@ -432,10 +432,30 @@ export default function SplitPaneEditor({ project, images, paragraphs: origParag
     setError(null);
 
     try {
-      const result = await translate(provider, text, 'auto', targetLang, apiKey);
+      let translatedText;
+      if (para.type === 'table') {
+        const sourceRows = getTableRows(para, originals);
+        const translatedRows = [];
+        for (const row of sourceRows) {
+          const translatedRow = [];
+          for (const cell of row) {
+            if (!cell.trim()) {
+              translatedRow.push('');
+              continue;
+            }
+            const result = await translate(provider, cell, 'auto', targetLang, apiKey);
+            translatedRow.push(result.translation);
+          }
+          translatedRows.push(translatedRow);
+        }
+        translatedText = translatedRows.map((row) => row.join('\t')).join('\n');
+      } else {
+        const result = await translate(provider, text, 'auto', targetLang, apiKey);
+        translatedText = result.translation;
+      }
       setTranslations((prev) => ({
         ...prev,
-        [para.index]: result.translation,
+        [para.index]: translatedText,
       }));
       setScrollToIndex(para.index);
     } catch (err) {
@@ -465,7 +485,7 @@ export default function SplitPaneEditor({ project, images, paragraphs: origParag
         text: originals[p.index] !== undefined ? originals[p.index] : p.text,
         translated: translations[p.index],
         type: p.type,
-        rows: p.type === 'table' ? (p.rows || getTableRows(p, originals)) : undefined,
+        rows: p.type === 'table' ? getTableRows(p, originals) : undefined,
         colCount: p.colCount,
       }));
     try {
@@ -494,7 +514,14 @@ export default function SplitPaneEditor({ project, images, paragraphs: origParag
       const text = originals[p.index] !== undefined ? originals[p.index] : p.text;
       if ((text || '').trim().length > 0) {
         oldToNew[p.index] = kept.length;
-        kept.push({ ...p, text });
+        kept.push({
+          ...p,
+          text,
+          ...(p.type === 'table' ? {
+            rows: getTableRows(p, originals),
+            colCount: Math.max(0, ...getTableRows(p, originals).map((row) => row.length)),
+          } : {}),
+        });
       }
     }
     const remapped = {};

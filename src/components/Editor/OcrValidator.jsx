@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import SmartTextarea from './SmartTextarea';
-import SuggestionButton, { ReScanButton } from './SuggestionButton';
+import SuggestionButton, { ReScanButton, TableRescanButton } from './SuggestionButton';
 import { readImage, readSourceDocument } from '../../storage';
 
 function ZoomableImage({ src, alt, focusBox }) {
@@ -208,6 +208,7 @@ export default function OcrValidator({ projectId, images, sources = [], paragrap
 
   const [currentPage, setCurrentPage] = useState(pages.length > 0 ? pages[0] : 1);
   const [edited, setEdited] = useState({});
+  const [tableOverrides, setTableOverrides] = useState({});
   const [focusBbox, setFocusBbox] = useState(null);
   const [imageUrl, setImageUrl] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -298,17 +299,26 @@ export default function OcrValidator({ projectId, images, sources = [], paragrap
     setEdited((prev) => ({ ...prev, [index]: newText }));
   };
 
-  const updateTableCell = (paraIndex, edited, ri, ci, val) => {
-    const raw = edited[paraIndex] !== undefined ? edited[paraIndex] : '';
+  const updateTableCell = (para, ri, ci, val) => {
+    const raw = edited[para.index] !== undefined
+      ? edited[para.index]
+      : (tableOverrides[para.index]?.text || para.text || '');
     const rows = raw ? raw.split('\n').map(l => l.split('\t')) : [];
     if (rows[ri]) rows[ri][ci] = val;
     const joined = rows.map(r => r.join('\t')).join('\n');
-    setEdited((prev) => ({ ...prev, [paraIndex]: joined }));
+    setEdited((prev) => ({ ...prev, [para.index]: joined }));
   };
 
   const getTableRows = (para) => {
-    const raw = edited[para.index] !== undefined ? edited[para.index] : (para.text || '');
+    const raw = edited[para.index] !== undefined
+      ? edited[para.index]
+      : (tableOverrides[para.index]?.text || para.text || '');
     return raw.split('\n').map(l => l.split('\t'));
+  };
+
+  const applyTableRescan = (para, table) => {
+    setTableOverrides((prev) => ({ ...prev, [para.index]: table }));
+    setEdited((prev) => ({ ...prev, [para.index]: table.text }));
   };
 
   const getText = (para) => edited[para.index] !== undefined ? edited[para.index] : para.text;
@@ -321,11 +331,12 @@ export default function OcrValidator({ projectId, images, sources = [], paragrap
       editedSample: Object.entries(edited).slice(0, 2),
     });
     const updated = paragraphs.map((p) => {
-      const entry = { ...p, text: edited[p.index] !== undefined ? edited[p.index] : p.text };
-      if (p.type === 'table' && edited[p.index] !== undefined) {
+      const override = tableOverrides[p.index];
+      const entry = { ...p, ...(override || {}), text: edited[p.index] !== undefined ? edited[p.index] : (override?.text || p.text) };
+      if (entry.type === 'table' && (edited[p.index] !== undefined || override)) {
         const rows = entry.text.split('\n').map(l => l.split('\t'));
         entry.rows = rows;
-        entry.colCount = rows[0]?.length || 0;
+        entry.colCount = Math.max(0, ...rows.map((row) => row.length));
       }
       return entry;
     });
@@ -336,10 +347,11 @@ export default function OcrValidator({ projectId, images, sources = [], paragrap
     const success = await onSaveParagraphs(updated);
     if (success) {
       setEdited({});
+      setTableOverrides({});
     }
   };
 
-  const hasEdits = Object.keys(edited).length > 0;
+  const hasEdits = Object.keys(edited).length > 0 || Object.keys(tableOverrides).length > 0;
 
   return (
     <div className="h-full flex flex-col">
@@ -426,7 +438,8 @@ export default function OcrValidator({ projectId, images, sources = [], paragrap
               const rows = Math.max(2, text.split('\n').length, Math.ceil(text.length / 60));
               const isEdited = edited[p.index] !== undefined && edited[p.index] !== p.text;
               if (!textareaRefs.current[p.index]) textareaRefs.current[p.index] = React.createRef();
-              const isTable = p.type === 'table';
+              const effectiveTable = tableOverrides[p.index] || (p.type === 'table' ? p : null);
+              const isTable = !!effectiveTable;
               return (
                 <div key={p.index} className="mb-3">
                   <div className="flex items-center gap-2 mb-0.5">
@@ -439,6 +452,13 @@ export default function OcrValidator({ projectId, images, sources = [], paragrap
                       paraIndex={idx}
                       totalParas={pageParagraphs.length}
                       disabled={p.source === 'pdf_text'}
+                    />}
+                    {isTable && <TableRescanButton
+                      imageData={imageUrl}
+                      bbox={effectiveTable.bbox || p.bbox}
+                      disabled={p.source === 'pdf_text'}
+                      onFocusImage={setFocusBbox}
+                      onApply={(table) => applyTableRescan(p, table)}
                     />}
                     <span className="text-[11px] text-gray-400 font-mono">{isTable ? '⊞' : '¶'}{p.index + 1}</span>
                     {isTable && <span className="text-[10px] text-indigo-500 font-medium">Table</span>}
@@ -454,7 +474,7 @@ export default function OcrValidator({ projectId, images, sources = [], paragrap
                                 <td key={ci} className="border border-gray-400 p-1 min-w-[60px] align-top">
                                   <textarea
                                     value={cell}
-                                    onChange={(e) => updateTableCell(p.index, edited, ri, ci, e.target.value)}
+                                    onChange={(e) => updateTableCell(p, ri, ci, e.target.value)}
                                     className="w-full bg-transparent resize-none outline-none border-none p-0 m-0 text-sm font-sans leading-snug"
                                     rows={Math.max(1, (cell || '').split('\n').length)}
                                   />

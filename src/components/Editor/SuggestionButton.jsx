@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { fetchSuggestions, reOcrRegion } from '../../spellcheck';
 import { readImage } from '../../storage';
+import { reOcrTableRegion } from '../../ocr';
 
 function findLineBbox(lines, selStart, selEnd) {
   let offset = 0;
@@ -156,6 +157,41 @@ export function ReScanButton({ textareaRef, imageData, lines, onFocusImage, para
         </div>
       )}
     </>
+  );
+}
+
+export function TableRescanButton({ imageData, bbox, disabled, onApply, onFocusImage }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleClick = useCallback(async () => {
+    if (disabled || !imageData || !bbox) return;
+    setLoading(true);
+    setError('');
+    if (onFocusImage) onFocusImage(bbox);
+    try {
+      const table = await reOcrTableRegion(imageData, bbox);
+      onApply(table);
+    } catch (err) {
+      setError(err?.message || 'Table re-scan failed.');
+    } finally {
+      setLoading(false);
+    }
+  }, [disabled, imageData, bbox, onApply, onFocusImage]);
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={disabled || loading || !imageData || !bbox}
+        className="text-xs px-2 py-0.5 rounded bg-cyan-100 text-cyan-800 hover:bg-cyan-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+        title="Re-run local OCR on this table while preserving rows and columns"
+      >
+        {loading ? 'Scanning table…' : 'Re-scan table'}
+      </button>
+      {error && <span className="text-[10px] text-red-600 max-w-[220px]" title={error}>{error}</span>}
+    </div>
   );
 }
 

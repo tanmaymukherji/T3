@@ -1,4 +1,5 @@
 import { createWorker } from 'tesseract.js';
+import { bboxOverlapRatio, collectTesseractWords, detectTableBlocks, unionBboxes } from './table-structure';
 
 let worker = null;
 let progressCallback = null;
@@ -68,7 +69,7 @@ function groupLinesIntoParagraphs(lines) {
       const wouldBeSingle = current.length === 0;
       if (gap > lineHeight * 2.5 && !wouldBeSingle) {
         if (current.length > 0) {
-          paragraphs.push({ text: current.join('\n').trim(), lines: currentLines });
+          paragraphs.push({ text: current.join('\n').trim(), lines: currentLines, bbox: unionBboxes(currentLines) });
           current = [];
           currentLines = [];
         }
@@ -81,7 +82,7 @@ function groupLinesIntoParagraphs(lines) {
   }
 
   if (current.length > 0) {
-    paragraphs.push({ text: current.join('\n').trim(), lines: currentLines });
+    paragraphs.push({ text: current.join('\n').trim(), lines: currentLines, bbox: unionBboxes(currentLines) });
   }
 
   return paragraphs;
@@ -91,7 +92,9 @@ export async function ocrImage(imageFile, onProgressFn) {
   if (onProgressFn) progressCallback = onProgressFn;
 
   const w = await getWorker();
-  const { data } = await w.recognize(imageFile);
+  // Tesseract.js v6+ returns text only by default. Explicitly request blocks so
+  // word bounding boxes are available for paragraph and table reconstruction.
+  const { data } = await w.recognize(imageFile, {}, { text: true, blocks: true });
 
   let paragraphs = [];
 
@@ -102,7 +105,7 @@ export async function ocrImage(imageFile, onProgressFn) {
       for (const para of block.paragraphs) {
         if (!para.lines || para.lines.length === 0) {
           const text = para.text?.trim();
-          if (text) paragraphs.push({ text, lines: [] });
+          if (text) paragraphs.push({ text, lines: [], bbox: para.bbox });
         } else {
           const lines = para.lines
             .map((l) => ({ text: (l.text || '').trim(), bbox: computeLineBbox(l) }))
@@ -111,6 +114,7 @@ export async function ocrImage(imageFile, onProgressFn) {
             paragraphs.push({
               text: lines.map((l) => l.text).join('\n'),
               lines,
+              bbox: unionBboxes(lines),
             });
           }
         }
@@ -172,10 +176,60 @@ export async function ocrImage(imageFile, onProgressFn) {
     }
   }
 
+  // Reconstruct tables from word geometry after all paragraph fallbacks, then
+  // remove prose blocks covering the same region. A table remains one block.
+  const words = collectTesseractWords(data.blocks || []);
+  const tables = detectTableBlocks(words);
+  if (tables.length > 0) {
+    paragraphs = paragraphs.flatMap((paragraph) => {
+      if (paragraph.lines?.length) {
+        const lines = paragraph.lines.filter((line) => !tables.some((table) => bboxOverlapRatio(line.bbox, table.bbox) >= 0.5));
+        if (!lines.length) return [];
+        return [{ ...paragraph, lines, text: lines.map((line) => line.text).join('\n'), bbox: unionBboxes(lines) }];
+      }
+      return tables.some((table) => bboxOverlapRatio(paragraph.bbox, table.bbox) >= 0.35) ? [] : [paragraph];
+    });
+    paragraphs = [...paragraphs, ...tables].sort((a, b) => {
+      if (!a.bbox && !b.bbox) return 0;
+      if (!a.bbox) return 1;
+      if (!b.bbox) return -1;
+      return a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0;
+    });
+  }
+
   return {
     text: data.text,
     paragraphs,
     wordCount: data.text ? data.text.split(/\s+/).filter(Boolean).length : 0,
+  };
+}
+
+export async function reOcrTableRegion(imageData, bbox, onProgressFn) {
+  const source = await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Could not load the page image.'));
+    image.src = imageData;
+  });
+  const paddingX = Math.max(24, (bbox.x1 - bbox.x0) * 0.04);
+  const paddingY = Math.max(18, (bbox.y1 - bbox.y0) * 0.18);
+  const x = Math.max(0, Math.floor(bbox.x0 - paddingX));
+  const y = Math.max(0, Math.floor(bbox.y0 - paddingY));
+  const width = Math.min(source.naturalWidth - x, Math.ceil(bbox.x1 - bbox.x0 + paddingX * 2));
+  const height = Math.min(source.naturalHeight - y, Math.ceil(bbox.y1 - bbox.y0 + paddingY * 2));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d').drawImage(source, x, y, width, height, 0, 0, width, height);
+  const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error('Could not prepare the table image.')), 'image/png'));
+  const result = await ocrImage(blob, onProgressFn);
+  const table = result.paragraphs.find((paragraph) => paragraph.type === 'table');
+  if (!table) throw new Error('No stable table grid was found in this region.');
+  const offsetBox = (box) => box ? ({ x0: box.x0 + x, y0: box.y0 + y, x1: box.x1 + x, y1: box.y1 + y }) : undefined;
+  return {
+    ...table,
+    bbox: offsetBox(table.bbox),
+    cells: (table.cells || []).map((cell) => ({ ...cell, bbox: offsetBox(cell.bbox) })),
   };
 }
 

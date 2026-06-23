@@ -53,12 +53,17 @@ export default function FolderImporter({ onImport, disabled }) {
             allImages.push({ page: globalPage, filename: `page_${globalPage}.png` });
 
             for (const paragraph of (result.paragraphs || [])) {
-              const text = (typeof paragraph === 'string' ? paragraph : paragraph.text || '').trim();
-              if (!text) continue;
+              const rawText = typeof paragraph === 'string' ? paragraph : paragraph.text || '';
+              if (!rawText.trim()) continue;
               allParagraphs.push({
                 page: globalPage,
                 filename: file.name,
-                text,
+                text: paragraph?.type === 'table' ? rawText : rawText.trim(),
+                type: typeof paragraph === 'object' ? paragraph.type : undefined,
+                rows: typeof paragraph === 'object' ? paragraph.rows : undefined,
+                colCount: typeof paragraph === 'object' ? paragraph.colCount : undefined,
+                bbox: typeof paragraph === 'object' ? paragraph.bbox : undefined,
+                cells: typeof paragraph === 'object' ? paragraph.cells : undefined,
                 lines: typeof paragraph === 'object' && Array.isArray(paragraph.lines) ? paragraph.lines : undefined,
                 source: 'image_ocr',
               });
