@@ -46,11 +46,17 @@ export default function FolderImporter({ onImport, disabled }) {
       // Process in source order so page numbers, source documents and images stay aligned.
       for (const file of items) {
         if (/\.(png|jpe?g|tiff?)$/i.test(file.name)) {
-          setProgress(`High-quality OCR: ${file.name}...`);
+          setProgress(`Scanning: ${file.name}...`);
           try {
+            // Try Tesseract first (typed mode); smartOcrImage will fall back
+            // to cloud OCR (OCR.Space -> Google Vision) if confidence is low.
             const result = await smartOcrImage(file, (update) => {
-              setProgress(`${update.phase === 'local-ocr' ? 'Local fallback OCR' : 'High-quality OCR'}: ${file.name}...`);
-            }, { tableMode: true });
+              const phase = update.phase === 'local-ocr' ? 'Tesseract'
+                : update.phase === 'google-vision' ? 'Google Vision'
+                : update.phase === 'cloud-table' ? 'Table OCR'
+                : 'Cloud OCR';
+              setProgress(`${phase}: ${file.name}...`);
+            }, { mode: 'typed' });
             if (result.ignored || !(result.paragraphs || []).length) {
               console.log('Ignoring image without meaningful written content:', file.name);
               continue;

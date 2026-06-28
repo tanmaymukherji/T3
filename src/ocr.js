@@ -212,10 +212,35 @@ export async function ocrImage(imageFile, onProgressFn, options = {}) {
     });
   }
 
+  // Compute average word confidence from Tesseract's per-word confidence.
+  // Tesseract.js places per-word confidence in the `confidence` property on
+  // each word object inside blocks → paragraphs → lines → words.
+  let confidence = 0;
+  let wordCount = 0;
+  if (data.blocks) {
+    for (const block of data.blocks) {
+      if (!block.paragraphs) continue;
+      for (const para of block.paragraphs) {
+        if (!para.lines) continue;
+        for (const line of para.lines) {
+          if (!line.words) continue;
+          for (const word of line.words) {
+            if (typeof word.confidence === 'number') {
+              confidence += word.confidence;
+              wordCount++;
+            }
+          }
+        }
+      }
+    }
+  }
+  const avgConfidence = wordCount > 0 ? confidence / wordCount : 0;
+
   return {
     text: data.text,
     paragraphs,
     wordCount: data.text ? data.text.split(/\s+/).filter(Boolean).length : 0,
+    confidence: avgConfidence,
   };
 }
 

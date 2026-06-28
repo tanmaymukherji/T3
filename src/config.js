@@ -39,6 +39,13 @@ const CONFIG = {
   },
   // OCR.space API key for re-scanning image regions
   OCR_SPACE_API_KEY: 'K82846767888957',
+
+  // Google Cloud Vision API key for fallback high-quality OCR
+  GOOGLE_VISION_API_KEY: 'AIzaSyAZWkGPHJLaj87uVhRuilkY9An5mIvLQIU',
+
+  // Confidence threshold for typed-text OCR (Tesseract.js). If the average
+  // word confidence falls below this, we fall back to cloud OCR.
+  OCR_CONFIDENCE_THRESHOLD: 70,
 };
 
 export default CONFIG;

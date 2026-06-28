@@ -439,14 +439,286 @@ export async function ocrSpaceImage(imageSource, options = {}) {
   throw new Error(errMsg);
 }
 
+// ---------------------------------------------------------------------------
+// Google Cloud Vision API integration (fallback when OCR.Space quota is over)
+// ---------------------------------------------------------------------------
+
+/**
+ * Render an image source (File/Blob) to a base64 data URL at a given max dimension.
+ * Ensures the base64 payload stays within typical API limits (~10 MB).
+ */
+function renderImageToBase64(imageSource, maxDimension = 2048, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    const objectUrl = imageSource instanceof Blob ? URL.createObjectURL(imageSource) : null;
+    img.onload = () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      let { naturalWidth: w, naturalHeight: h } = img;
+      if (w > maxDimension || h > maxDimension) {
+        const scale = Math.min(maxDimension / w, maxDimension / h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = (err) => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      reject(err);
+    };
+    img.src = imageSource instanceof Blob ? objectUrl : imageSource;
+  });
+}
+
+/**
+ * Convert an array of Google Vision `vertices` objects to a normalized bbox.
+ * Vertices format: [{x: 0, y: 0}, {x: 100, y: 0}, {x: 100, y: 50}, {x: 0, y: 50}]
+ */
+function verticesToBbox(vertices) {
+  if (!vertices || vertices.length < 2) return null;
+  const xs = vertices.map(v => v.x || 0);
+  const ys = vertices.map(v => v.y || 0);
+  return {
+    x0: Math.min(...xs),
+    y0: Math.min(...ys),
+    x1: Math.max(...xs),
+    y1: Math.max(...ys),
+  };
+}
+
+/**
+ * Reconstruct paragraphs (including tables) from the Google Vision
+ * DOCUMENT_TEXT_DETECTION response fullTextAnnotation.
+ *
+ * Google Vision returns:
+ *   fullTextAnnotation.text          – full page text
+ *   fullTextAnnotation.pages[].blocks[].paragraphs[].words[].symbols[]
+ *   Each word has a boundingBox with vertices.
+ *
+ * We cluster words into lines by Y proximity, then cluster lines into
+ * paragraphs/table blocks by X/Y gaps, falling back to the existing
+ * cloudTextToParagraphs() if the structured data is insufficient.
+ */
+function parseGoogleVisionParagraphs(fullTextAnnotation, preferTable = false) {
+  const text = (fullTextAnnotation?.text || '').trim();
+  if (!text) return { paragraphs: [], text: '' };
+
+  const pages = fullTextAnnotation?.pages || [];
+  if (!pages.length) {
+    // No structured data; fall back to plain text parse
+    return { text, paragraphs: cloudTextToParagraphs(text, { preferTable }) };
+  }
+
+  // Collect all words with their bounding boxes from all pages
+  const allWords = [];
+  for (const page of pages) {
+    const blocks = page.blocks || [];
+    for (const block of blocks) {
+      const paragraphs = block.paragraphs || [];
+      for (const para of paragraphs) {
+        const words = para.words || [];
+        for (const word of words) {
+          const wordText = (word.symbols || []).map(s => s.text || '').join('');
+          if (!wordText.trim()) continue;
+          allWords.push({
+            text: wordText,
+            bbox: verticesToBbox(word.boundingBox?.vertices || word.boundingBox?.normalizedVertices),
+          });
+        }
+      }
+    }
+  }
+
+  if (allWords.length === 0) {
+    return { text, paragraphs: cloudTextToParagraphs(text, { preferTable }) };
+  }
+
+  // Group words into lines based on Y-axis overlap
+  const LINE_TOLERANCE = 0.3; // fraction of median word height for Y overlap
+  const sortedWords = [...allWords].sort((a, b) => (a.bbox?.y0 || 0) - (b.bbox?.y0 || 0));
+  const wordHeights = sortedWords.filter(w => w.bbox).map(w => w.bbox.y1 - w.bbox.y0);
+  const medianWordHeight = wordHeights.length > 0
+    ? wordHeights.sort((a, b) => a - b)[Math.floor(wordHeights.length / 2)]
+    : 10;
+
+  const lines = [];
+  for (const word of sortedWords) {
+    if (!word.bbox) { lines.push({ text: word.text, bbox: null, words: [word] }); continue; }
+    const wordMidY = (word.bbox.y0 + word.bbox.y1) / 2;
+    let line = lines.find(l => {
+      if (!l.bbox) return false;
+      const lineMidY = (l.bbox.y0 + l.bbox.y1) / 2;
+      return Math.abs(wordMidY - lineMidY) <= medianWordHeight * LINE_TOLERANCE;
+    });
+    if (!line) {
+      line = { text: '', bbox: { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }, words: [] };
+      lines.push(line);
+    }
+    line.words.push(word);
+    if (word.bbox) {
+      line.bbox.x0 = Math.min(line.bbox.x0, word.bbox.x0);
+      line.bbox.y0 = Math.min(line.bbox.y0, word.bbox.y0);
+      line.bbox.x1 = Math.max(line.bbox.x1, word.bbox.x1);
+      line.bbox.y1 = Math.max(line.bbox.y1, word.bbox.y1);
+    }
+  }
+
+  // Sort lines by Y then X, then reconstruct text for each line
+  for (const line of lines) {
+    line.words.sort((a, b) => (a.bbox?.x0 || 0) - (b.bbox?.x0 || 0));
+    line.text = line.words.map(w => w.text).join(' ');
+  }
+  lines.sort((a, b) => (a.bbox?.y0 || 0) - (b.bbox?.y0 || 0) || (a.bbox?.x0 || 0) - (b.bbox?.x0 || 0));
+
+  // Attempt table reconstruction using the same overlayLinesToTable logic
+  // by converting our word-based lines into the OCR.Space overlay format.
+  if (preferTable) {
+    const overlayLines = lines.map(line => ({
+      Words: line.words.map(w => w.bbox ? {
+        WordText: w.text,
+        Left: w.bbox.x0,
+        Top: w.bbox.y0,
+        Width: w.bbox.x1 - w.bbox.x0,
+        Height: w.bbox.y1 - w.bbox.y0,
+      } : { WordText: w.text, Left: 0, Top: 0, Width: 0, Height: 0 }),
+    }));
+    const table = overlayLinesToTable(overlayLines);
+    if (table) {
+      return { text, paragraphs: [table] };
+    }
+  }
+
+  // Fall back to paragraph grouping by line spacing
+  const paragraphs = [];
+  let currentLines = [];
+  let currentBboxes = [];
+  let prevBottom = null;
+
+  for (const line of lines) {
+    if (!line.bbox) { currentLines.push(line.text); continue; }
+    if (prevBottom !== null) {
+      const gap = line.bbox.y0 - prevBottom;
+      if (gap > medianWordHeight * 2.0 && currentLines.length > 0) {
+        paragraphs.push({
+          text: currentLines.join('\n'),
+          lines: currentLines.map((t, i) => ({ text: t, bbox: currentBboxes[i] })),
+          bbox: boxUnion(currentBboxes.filter(Boolean)),
+        });
+        currentLines = [];
+        currentBboxes = [];
+      }
+    }
+    currentLines.push(line.text);
+    currentBboxes.push(line.bbox);
+    prevBottom = line.bbox.y1;
+  }
+  if (currentLines.length > 0) {
+    paragraphs.push({
+      text: currentLines.join('\n'),
+      lines: currentLines.map((t, i) => ({ text: t, bbox: currentBboxes[i] })),
+      bbox: boxUnion(currentBboxes.filter(Boolean)),
+    });
+  }
+
+  return { text, paragraphs: paragraphs.length > 0 ? paragraphs : cloudTextToParagraphs(text, { preferTable }) };
+}
+
+/**
+ * Call the Google Cloud Vision API for DOCUMENT_TEXT_DETECTION.
+ * Returns an object shaped similarly to ocrSpaceImage() so that
+ * smartOcrImage can use it interchangeably.
+ *
+ * @param {File|Blob} imageSource
+ * @param {object} options - { tableMode, maxDimension, languageHints }
+ * @returns {Promise<{text, orientation, table, paragraphs, provider}>}
+ */
+export async function googleVisionImage(imageSource, options = {}) {
+  const apiKey = CONFIG.GOOGLE_VISION_API_KEY;
+  if (!apiKey) throw new Error('Google Vision API key is not configured.');
+
+  const tableMode = !!options.tableMode;
+  const maxDimension = options.maxDimension || 2048;
+  const languageHints = options.languageHints || ['hi', 'en-t-i0-handwrit'];
+
+  const base64DataUrl = await renderImageToBase64(imageSource, maxDimension);
+  const base64Content = base64DataUrl.split(',')[1];
+
+  const response = await fetch(
+    `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          image: { content: base64Content },
+          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+          imageContext: { languageHints },
+        }],
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Google Vision error (${response.status}): ${errorText.slice(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const apiError = data.responses?.[0]?.error;
+  if (apiError) {
+    throw new Error(`Google Vision API error: ${apiError.message}`);
+  }
+
+  const fullTextAnnotation = data.responses?.[0]?.fullTextAnnotation;
+  if (!fullTextAnnotation) {
+    return { text: '', orientation: 0, table: null, paragraphs: [], provider: 'google-vision' };
+  }
+
+  const text = fullTextAnnotation.text || '';
+  const { paragraphs } = parseGoogleVisionParagraphs(fullTextAnnotation, tableMode);
+
+  const table = paragraphs.find(p => p.type === 'table') || null;
+
+  return {
+    text,
+    orientation: 0, // Google Vision detects orientation automatically
+    table,
+    paragraphs,
+    provider: 'google-vision',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Re-scan region (used by the editor's zone re-scan feature)
+// ---------------------------------------------------------------------------
+
 export async function reOcrRegionDetailed(imageData, bbox, options = {}) {
   const padding = typeof options === 'number' ? options : options.padding;
   const tableMode = typeof options === 'object' && !!options.tableMode;
-  return ocrSpaceImage(imageData, {
-    bbox,
-    tableMode,
-    padding: padding !== undefined ? padding : Math.max(8, (bbox.x1 - bbox.x0) * 0.08),
-  });
+
+  // Try OCR.Space first; on quota exceed, fall back to Google Vision
+  try {
+    return await ocrSpaceImage(imageData, {
+      bbox,
+      tableMode,
+      padding: padding !== undefined
+        ? padding
+        : Math.max(8, (bbox.x1 - bbox.x0) * 0.08),
+    });
+  } catch (firstError) {
+    if (firstError.code === 'OCR_DAILY_LIMIT') {
+      console.warn('OCR.Space quota exceeded; falling back to Google Vision for zone re-scan.');
+      return await googleVisionImage(imageData, {
+        tableMode,
+        bbox,
+        maxDimension: 2048,
+      });
+    }
+    throw firstError;
+  }
 }
 
 export async function reOcrRegion(imageData, bbox, padding) {

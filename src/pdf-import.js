@@ -72,6 +72,9 @@ export async function processPdfFile({
         let ocr = { paragraphs: [] };
         let lastReportedPercent = -5;
         try {
+          // Try Tesseract first (typed mode); smartOcrImage falls back to
+          // cloud OCR (OCR.Space -> Google Vision) if confidence is low or if
+          // the page requires table/handwriting recognition.
           ocr = await smartOcrImage(rendered, (update) => {
             const roundedPercent = Math.round((update.percent || 0) * (update.percent > 1 ? 1 : 100));
             if (roundedPercent >= lastReportedPercent + 5 || roundedPercent === 100) {
@@ -84,7 +87,7 @@ export async function processPdfFile({
                 percent: roundedPercent,
               });
             }
-          });
+          }, { mode: 'typed' });
         } catch (error) {
           // Preserve the source page and continue the rest of the document if one OCR page fails.
           console.error(`OCR failed for ${file.name} page ${sourcePage}:`, error);
